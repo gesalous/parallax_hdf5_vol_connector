@@ -4,6 +4,18 @@ project (parallax_vol VERSION 1.0.0 DESCRIPTION "parallax VOL connector" LANGUAG
 list(APPEND CMAKE_PREFIX_PATH "/home/gesalous/HDF5_staff/hdf5")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+string(APPEND CMAKE_C_FLAGS " -Werror")
+string(
+  APPEND
+  CMAKE_C_FLAGS
+  " -Wstrict-prototypes -Wall -Wextra -fno-omit-frame-pointer -Wunused -Wuninitialized"
+)
+string(
+  APPEND
+  CMAKE_C_FLAGS
+  " -Wimplicit-function-declaration -Wshadow -pedantic -pedantic-errors -Wmisleading-indentation -pipe"
+)
+
 # Enable testing
 enable_testing ()
 include (CTest)

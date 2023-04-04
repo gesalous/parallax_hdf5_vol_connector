@@ -15,11 +15,11 @@
  *              connectors.
  */
 
-#ifndef _template_vol_connector_H
-#define _template_vol_connector_H
+#ifndef _parallax_vol_connector_H
+#define _parallax_vol_connector_H
 
 /* The value must be between 256 and 65535 (inclusive) */
 #define PARALLAX_VOL_CONNECTOR_VALUE ((H5VL_class_value_t)12203)
 #define PARALLAX_VOL_CONNECTOR_NAME "parallax_vol_connector"
 
-#endif /* _template_vol_connector_H */
+#endif /* _parallax_vol_connector_H */
