@@ -1,7 +1,7 @@
 include(cmake_utils/PreventInSouceBuilds.cmake.in)
 cmake_minimum_required(VERSION 3.11.0 FATAL_ERROR)
 project (parallax_vol VERSION 1.0.0 DESCRIPTION "parallax VOL connector" LANGUAGES C)
-list(APPEND CMAKE_PREFIX_PATH "/home/gesalous/HDF5_staff/hdf5")
+list(APPEND CMAKE_PREFIX_PATH "/usr/local/hdf5")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 string(APPEND CMAKE_C_FLAGS " -Werror")
