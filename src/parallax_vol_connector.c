@@ -17,6 +17,9 @@
 
 /* This connector's header */
 #include "parallax_vol_connector.h"
+#include "parallax_vol_file.h"
+#include "parallax_vol_group.h"
+#include "parallax_vol_object.h"
 #include <H5PLextern.h>
 #include <hdf5.h>
 #include <stdlib.h>
@@ -80,21 +83,21 @@ static const H5VL_class_t template_class_g = {
     },
     {
         /* file_cls */
-        NULL, /* create       */
-        NULL, /* open         */
-        NULL, /* get          */
-        NULL, /* specific     */
-        NULL, /* optional     */
-        NULL  /* close        */
+        parh5F_create,   /* create       */
+        parh5F_open,     /* open         */
+        parh5F_get,      /* get          */
+        parh5F_specific, /* specific     */
+        parh5F_optional, /* optional     */
+        parh5F_close     /* close        */
     },
     {
         /* group_cls */
-        NULL, /* create       */
-        NULL, /* open         */
-        NULL, /* get          */
-        NULL, /* specific     */
-        NULL, /* optional     */
-        NULL  /* close        */
+        parh5G_create,   /* create       */
+        parh5G_open,     /* open         */
+        parh5G_get,      /* get          */
+        parh5G_specific, /* specific     */
+        parh5G_optional, /* optional     */
+        parh5G_close     /* close        */
     },
     {
         /* link_cls */
@@ -107,11 +110,11 @@ static const H5VL_class_t template_class_g = {
     },
     {
         /* object_cls */
-        NULL, /* open         */
-        NULL, /* copy         */
-        NULL, /* get          */
-        NULL, /* specific     */
-        NULL  /* optional     */
+        parh5_open,     /* open         */
+        parh5_copy,     /* copy         */
+        parh5_get,      /* get          */
+        parh5_specific, /* specific     */
+        parh5_optional  /* optional     */
     },
     {
         /* introscpect_cls */
