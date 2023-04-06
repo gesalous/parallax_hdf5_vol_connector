@@ -19,10 +19,25 @@
 #include "parallax_vol_connector.h"
 #include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
+#include "parallax_vol_introspect.h"
 #include "parallax_vol_object.h"
 #include <H5PLextern.h>
 #include <hdf5.h>
 #include <stdlib.h>
+
+herr_t parh5_initialize(hid_t vipl_id) {
+  (void)vipl_id;
+  fprintf(stderr, "Initialized parallax plugin successfully!%s:%s:%d\n",
+          __FILE__, __func__, __LINE__);
+  return 1;
+}
+
+herr_t parh5_terminate(void) {
+
+  fprintf(stderr, "Closed parallax plugin successfully!%s:%s:%d\n", __FILE__,
+          __func__, __LINE__);
+  return 1;
+}
 
 /* The VOL class struct */
 static const H5VL_class_t template_class_g = {
@@ -31,8 +46,8 @@ static const H5VL_class_t template_class_g = {
     PARALLAX_VOL_CONNECTOR_NAME,  /* name                     */
     0,                            /* version                  */
     0,                            /* capability flags         */
-    NULL,                         /* initialize               */
-    NULL,                         /* terminate                */
+    parh5_initialize,             /* initialize               */
+    parh5_terminate,              /* terminate                */
     {
         /* info_cls */
         (size_t)0, /* size    */
@@ -118,9 +133,9 @@ static const H5VL_class_t template_class_g = {
     },
     {
         /* introscpect_cls */
-        NULL, /* get_conn_cls  */
-        NULL, /* get_cap_flags */
-        NULL  /* opt_query     */
+        parh5_get_conn_cls,  /* get_conn_cls  */
+        parh5_get_cap_flags, /* get_cap_flags */
+        parh5_opt_query      /* opt_query     */
     },
     {
         /* request_cls */
