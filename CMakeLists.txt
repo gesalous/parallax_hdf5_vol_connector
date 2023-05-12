@@ -1,4 +1,5 @@
 include(cmake_utils/PreventInSouceBuilds.cmake.in)
+include(FetchContent)
 cmake_minimum_required(VERSION 3.11.0 FATAL_ERROR)
 project (parallax_vol VERSION 1.0.0 DESCRIPTION "parallax VOL connector" LANGUAGES C)
 list(APPEND CMAKE_PREFIX_PATH "/usr/local/hdf5")
@@ -33,3 +34,16 @@ set (LINK_LIBS ${LINK_LIBS} ${HDF5_C_${LIB_TYPE}_LIBRARY})
 add_subdirectory (src)
 add_subdirectory (test)
 
+set(FETCHCONTENT_QUIET FALSE)
+FetchContent_Declare(
+  log
+  GIT_REPOSITORY https://github.com/innerout/log.c.git
+  GIT_PROGRESS TRUE)
+
+FetchContent_GetProperties(log)
+
+if(NOT log_POPULATED)
+  FetchContent_Populate(log)
+  add_subdirectory(${log_SOURCE_DIR} ${log_BINARY_DIR})
+  FetchContent_MakeAvailable(log)
+endif()
