@@ -1,16 +1,21 @@
 #include "parallax_vol_file.h"
+#include "parallax/structures.h"
+#include "parallax_vol_connector.h"
+#include "uthash.h"
 #include <H5Fpublic.h>
 #include <H5Ppublic.h>
 #include <H5Tpublic.h>
 #include <assert.h>
 #include <hdf5.h>
 #include <log.h>
+#include <parallax/parallax.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+
 struct par_file_handle {
-  uint64_t uuid;
+  par_handle db;
 };
 
 static const char *parh5F_flags2s(unsigned flags) {
@@ -21,18 +26,6 @@ static const char *parh5F_flags2s(unsigned flags) {
   if (flags & H5F_ACC_DEBUG)
     return "H5F_ACC_DEBUG ";
   return "NULL flags";
-}
-
-static herr_t parh5F_property_list_iterator(hid_t prop_id, const char *name,
-                                            void *iter_data) {
-  (void)iter_data;
-
-  size_t prop_size = 0;
-  H5Pget_size(prop_id, name, &prop_size);
-
-  log_debug("Property Name: %s value size %zu", name, prop_size);
-
-  return 0; // Continue iterating
 }
 
 void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id,
@@ -53,21 +46,21 @@ void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id,
   hid_t class_id = H5Pget_class(fapl_id);
   log_debug("%s number of properties: %zu", H5Pget_class_name(class_id),
             nprops);
-  H5Piterate(fcpl_id, &idx, parh5F_property_list_iterator, NULL);
+  H5Piterate(fcpl_id, &idx, parh5_property_list_iterator, NULL);
   log_debug("***\n\n");
   idx = 0;
   H5Pget_nprops(fcpl_id, &nprops);
   class_id = H5Pget_class(fcpl_id);
   log_debug("%s number of properties: %zu", H5Pget_class_name(class_id),
             nprops);
-  H5Piterate(fapl_id, &idx, parh5F_property_list_iterator, NULL);
+  H5Piterate(fapl_id, &idx, parh5_property_list_iterator, NULL);
   log_debug("***\n\n");
   idx = 0;
   H5Pget_nprops(dxpl_id, &nprops);
   class_id = H5Pget_class(dxpl_id);
   log_debug("%s number of properties: %zu", H5Pget_class_name(class_id),
             nprops);
-  H5Piterate(dxpl_id, &idx, parh5F_property_list_iterator, NULL);
+  H5Piterate(dxpl_id, &idx, parh5_property_list_iterator, NULL);
   _exit(EXIT_FAILURE);
   return calloc(1UL, sizeof(struct par_file_handle));
 }

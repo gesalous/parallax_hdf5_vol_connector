@@ -17,9 +17,11 @@
 
 #ifndef _parallax_vol_connector_H
 #define _parallax_vol_connector_H
-
+#include <hdf5.h>
 /* The value must be between 256 and 65535 (inclusive) */
 #define PARALLAX_VOL_CONNECTOR_VALUE ((H5VL_class_value_t)12202)
 #define PARALLAX_VOL_CONNECTOR_NAME "parallax_vol_connector"
 
+herr_t parh5_property_list_iterator(hid_t prop_id, const char *name,
+                                    void *iter_data);
 #endif /* _parallax_vol_connector_H */

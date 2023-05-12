@@ -23,18 +23,43 @@
 #include "parallax_vol_introspect.h"
 #include "parallax_vol_object.h"
 #include <H5PLextern.h>
+#include <assert.h>
+#include <bits/pthreadtypes.h>
 #include <hdf5.h>
 #include <log.h>
+#include <pthread.h>
 #include <stdlib.h>
 
+struct parh5_file_map {
+
+} struct parh5_connector_state {
+  pthread_rwlock_t file_map_lock;
+};
+
+struct parh5_connector_state *connector;
+
+herr_t parh5_property_list_iterator(hid_t prop_id, const char *name,
+                                    void *iter_data) {
+  (void)iter_data;
+
+  size_t prop_size = 0;
+  H5Pget_size(prop_id, name, &prop_size);
+
+  log_debug("Property Name: %s value size %zu", name, prop_size);
+
+  return 0; // Continue iterating
+}
+
 herr_t parh5_initialize(hid_t vipl_id) {
-  (void)vipl_id;
+  connector = calloc(1, sizeof(*connector));
+  pthread_rwlock_init(&connector->file_map_lock, NULL);
   log_debug("Initialized parallax plugin");
   return 1;
 }
 
 herr_t parh5_terminate(void) {
-
+  free(connector);
+  connector = NULL;
   log_debug("Closed parallax plugin");
   return 1;
 }
