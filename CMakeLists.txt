@@ -5,17 +5,50 @@ project (parallax_vol VERSION 1.0.0 DESCRIPTION "parallax VOL connector" LANGUAG
 list(APPEND CMAKE_PREFIX_PATH "/usr/local/hdf5")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-string(APPEND CMAKE_C_FLAGS " -Werror")
-string(
-  APPEND
-  CMAKE_C_FLAGS
-  " -Wstrict-prototypes -Wall -Wextra -fno-omit-frame-pointer -Wunused -Wuninitialized"
-)
-string(
-  APPEND
-  CMAKE_C_FLAGS
-  " -Wimplicit-function-declaration -Wshadow -pedantic -pedantic-errors -Wmisleading-indentation -pipe"
-)
+# string(APPEND CMAKE_C_FLAGS " -Werror")
+string(APPEND CMAKE_C_FLAGS "-fPIC")
+# string(
+#   APPEND
+#   CMAKE_C_FLAGS
+#   " -Wstrict-prototypes -Wall -Wextra -fno-omit-frame-pointer -Wunused -Wuninitialized"
+# )
+# string(
+#   APPEND
+#   CMAKE_C_FLAGS
+#   " -Wimplicit-function-declaration -Wshadow -pedantic -pedantic-errors -Wmisleading-indentation -pipe"
+# )
+
+#Figure out the build type of the plugin
+set(default_build_type "Debug")
+string( APPEND CMAKE_C_FLAGS_RELEASE " -O2 -DNDEBUG -finline-functions")
+string( APPEND CMAKE_C_FLAGS_DEBUG " -g -ggdb3 -Og -gz")
+
+if(CMAKE_BUILD_TYPE)
+  message(
+    STATUS
+    "Setting build type to '${CMAKE_BUILD_TYPE}' as specified.")
+else() 
+  message(
+    STATUS
+    "Setting build type to '${default_build_type}' as none was specified.")
+  set(CMAKE_BUILD_TYPE "${default_build_type}")
+endif()
+
+
+message(
+  STATUS
+  "Source dir = '${CMAKE_SOURCE_DIR}'")
+
+message(
+  STATUS
+  "Release flags are '${CMAKE_C_FLAGS_RELEASE}'")
+message(
+  STATUS
+  "DEBUG flags are '${CMAKE_C_FLAGS_DEBUG}'")
+message(
+  STATUSLIB_TEST_
+  "CMAKE install libdir is '${CMAKE_INSTALL_LIBDIR}'")
+  
 
 # Enable testing
 enable_testing ()
@@ -47,3 +80,19 @@ if(NOT log_POPULATED)
   add_subdirectory(${log_SOURCE_DIR} ${log_BINARY_DIR})
   FetchContent_MakeAvailable(log)
 endif()
+
+# Fetch Parallax project
+FetchContent_Declare(
+  parallax
+  GIT_REPOSITORY git@carvgit.ics.forth.gr:storage/parallax.git
+  GIT_TAG debug_cmake
+  GIT_PROGRESS TRUE)
+
+if(NOT parallax_POPULATED)
+  FetchContent_Populate(parallax)
+  add_subdirectory(${parallax_SOURCE_DIR} ${parallax_BINARY_DIR})
+  FetchContent_MakeAvailable(parallax)
+endif()
+
+
+
