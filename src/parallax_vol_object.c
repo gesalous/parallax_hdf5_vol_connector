@@ -8,7 +8,8 @@ void *parh5_open(void *obj, const H5VL_loc_params_t *loc_params,
   (void)opened_type;
   (void)dxpl_id;
   (void)req;
-  fprintf(stderr, "Hello from function %s in file: %s\n", __func__, __FILE__);
+  fprintf(stderr, "PAR_OBJECT_CLASS from function %s in file: %s\n", __func__,
+          __FILE__);
   return NULL;
 }
 herr_t parh5_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
@@ -25,7 +26,8 @@ herr_t parh5_copy(void *src_obj, const H5VL_loc_params_t *loc_params1,
   (void)lcpl_id;
   (void)dxpl_id;
   (void)req;
-  fprintf(stderr, "Hello from function %s in file: %s\n", __func__, __FILE__);
+  fprintf(stderr, "PAR_OBJECT_CLASS from function %s in file: %s\n", __func__,
+          __FILE__);
   return 0;
 }
 
@@ -36,7 +38,8 @@ herr_t parh5_get(void *obj, const H5VL_loc_params_t *loc_params,
   (void)args;
   (void)dxpl_id;
   (void)req;
-  fprintf(stderr, "Hello from function %s in file: %s\n", __func__, __FILE__);
+  fprintf(stderr, "PAR_OBJECT_CLASS from function %s in file: %s\n", __func__,
+          __FILE__);
   return 0;
 }
 
@@ -48,7 +51,8 @@ herr_t parh5_specific(void *obj, const H5VL_loc_params_t *loc_params,
   (void)args;
   (void)dxpl_id;
   (void)req;
-  fprintf(stderr, "Hello from function %s in file: %s\n", __func__, __FILE__);
+  fprintf(stderr, "PAR_OBJECT_CLASS from function %s in file: %s\n", __func__,
+          __FILE__);
   return 0;
 }
 
@@ -59,6 +63,7 @@ herr_t parh5_optional(void *obj, const H5VL_loc_params_t *loc_params,
   (void)args;
   (void)dxpl_id;
   (void)req;
-  fprintf(stderr, "Hello from function %s in file: %s\n", __func__, __FILE__);
+  fprintf(stderr, "PAR_OBJECT_CLASS from function %s in file: %s\n", __func__,
+          __FILE__);
   return 0;
 }

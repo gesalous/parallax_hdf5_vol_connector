@@ -5,7 +5,6 @@
 #include <unistd.h>
 
 int main(void) {
-  hid_t file_id, group_id, dset_id, fcpl_id, fapl_id, lcpl_id;
 
   /* Register the connector by name */
   hid_t vol_id = {0};
@@ -17,22 +16,34 @@ int main(void) {
   }
 
   // Create file
-  fapl_id = H5Pcreate(H5P_FILE_ACCESS);
+  fprintf(stderr, "*****Creating file....*******\n");
+  hid_t fapl_id = H5Pcreate(H5P_FILE_ACCESS);
   H5Pset_vol(fapl_id, vol_id, NULL);
-  file_id =
+  hid_t file_id =
       H5Fcreate("my_parallax_file.h5", H5F_ACC_TRUNC, H5P_DEFAULT, fapl_id);
+  fprintf(stderr, "*****Creating file...SUCCESS.*******\n");
 
   // Create group
-  lcpl_id = H5Pcreate(H5P_LINK_CREATE);
-  group_id = H5Gcreate2(file_id, "/my_parallax_group", lcpl_id, H5P_DEFAULT,
-                        H5P_DEFAULT);
+  fprintf(stderr, "*****Creating group...*******\n");
+  hid_t lcpl_id = H5Pcreate(H5P_LINK_CREATE);
+  hid_t group_id = H5Gcreate2(file_id, "/my_parallax_group", lcpl_id,
+                              H5P_DEFAULT, H5P_DEFAULT);
+  fprintf(stderr, "*****Creating group...SUCCESS*******\n");
 
   // Create dataset
-  fcpl_id = H5Pcreate(H5P_FILE_CREATE);
-  H5Pset_link_creation_order(fcpl_id,
-                             H5P_CRT_ORDER_TRACKED | H5P_CRT_ORDER_INDEXED);
-  dset_id = H5Dcreate2(file_id, "/my_group/my_dataset", H5T_NATIVE_INT,
-                       group_id, H5P_DEFAULT, fcpl_id, H5P_DEFAULT);
+  // fprintf(stderr, "*****Creating properties...*******\n");
+  // fcpl_id = H5Pcreate(H5P_FILE_CREATE);
+  // fprintf(stderr, "*****Creating properties...SUCCESS*******\n");
+
+  // fprintf(stderr, "*****Creating link...*******\n");
+  // H5Pset_link_creation_order(fcpl_id,
+  //                            H5P_CRT_ORDER_TRACKED | H5P_CRT_ORDER_INDEXED);
+  // fprintf(stderr, "*****Creating link...SUCCESS*******\n");
+
+  fprintf(stderr, "*****Creating dataset...*******\n");
+  hid_t dset_id = H5Dcreate2(file_id, "/my_group/my_dataset", H5T_NATIVE_INT,
+                             group_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  fprintf(stderr, "*****Creating dataset...SUCCESS*******\n");
 
   // Write data to dataset
   int data[10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
@@ -46,7 +57,7 @@ int main(void) {
   status = H5Dclose(dset_id);
   status = H5Gclose(group_id);
   status = H5Fclose(file_id);
-  status = H5Pclose(fcpl_id);
+  // status = H5Pclose(fcpl_id);
   status = H5Pclose(fapl_id);
   status = H5Pclose(lcpl_id);
   status = H5VLunregister_connector(vol_id);
