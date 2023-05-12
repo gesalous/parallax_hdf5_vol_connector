@@ -57,7 +57,23 @@ message(
 # Find HDF5
 find_package (HDF5 1.13 COMPONENTS C REQUIRED)
 link_directories (${HDF5_LIBRARY_DIRS})
-include_directories (${HDF5_INCLUDE_DIR})
+
+FetchContent_Declare(
+  uthash
+  GIT_REPOSITORY https://github.com/troydhanson/uthash
+  GIT_PROGRESS TRUE)
+
+FetchContent_GetProperties(uthash)
+
+# Do not add uthash in the DEPENDENCIES variable. Uthash is a special case
+# because it is a header only library & does not support cmake.
+if(NOT uthash_POPULATED)
+  FetchContent_Populate(uthash)
+  # add_subdirectory(${uthash_SOURCE_DIR}/include)
+  include_directories(${uthash_SOURCE_DIR}/src ${HDF5_INCLUDE_DIR})
+  FetchContent_MakeAvailable(uthash)
+endif()
+
 set (LINK_LIBS ${LINK_LIBS} ${HDF5_C_${LIB_TYPE}_LIBRARY})
 
 # It's really easy to pick up the wrong HDF5 library if you set the path
@@ -85,7 +101,7 @@ endif()
 FetchContent_Declare(
   parallax
   GIT_REPOSITORY git@carvgit.ics.forth.gr:storage/parallax.git
-  GIT_TAG debug_cmake
+  GIT_TAG teboparallax_synced
   GIT_PROGRESS TRUE)
 
 if(NOT parallax_POPULATED)
@@ -93,6 +109,9 @@ if(NOT parallax_POPULATED)
   add_subdirectory(${parallax_SOURCE_DIR} ${parallax_BINARY_DIR})
   FetchContent_MakeAvailable(parallax)
 endif()
+
+
+
 
 
 
