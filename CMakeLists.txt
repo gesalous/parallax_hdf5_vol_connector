@@ -51,8 +51,8 @@ message(
   
 
 # Enable testing
-enable_testing ()
-include (CTest)
+# enable_testing ()
+# include (CTest)
 
 # Find HDF5
 find_package (HDF5 1.13 COMPONENTS C REQUIRED)
