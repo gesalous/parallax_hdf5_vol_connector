@@ -29,15 +29,13 @@
 
 herr_t parh5_initialize(hid_t vipl_id) {
   (void)vipl_id;
-  fprintf(stderr, "Initialized parallax plugin successfully!%s:%s:%d\n",
-          __FILE__, __func__, __LINE__);
+  log_debug("Initialized parallax plugin");
   return 1;
 }
 
 herr_t parh5_terminate(void) {
 
-  fprintf(stderr, "Closed parallax plugin successfully!%s:%s:%d\n", __FILE__,
-          __func__, __LINE__);
+  log_debug("Closed parallax plugin");
   return 1;
 }
 
