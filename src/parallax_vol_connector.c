@@ -17,12 +17,14 @@
 
 /* This connector's header */
 #include "parallax_vol_connector.h"
+#include "parallax_vol_dataset.h"
 #include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
 #include "parallax_vol_introspect.h"
 #include "parallax_vol_object.h"
 #include <H5PLextern.h>
 #include <hdf5.h>
+#include <log.h>
 #include <stdlib.h>
 
 herr_t parh5_initialize(hid_t vipl_id) {
@@ -78,14 +80,14 @@ static const H5VL_class_t template_class_g = {
     },
     {
         /* dataset_cls */
-        NULL, /* create       */
-        NULL, /* open         */
-        NULL, /* read         */
-        NULL, /* write        */
-        NULL, /* get          */
-        NULL, /* specific     */
-        NULL, /* optional     */
-        NULL  /* close        */
+        parh5D_create,   /* create       */
+        parh5D_open,     /* open         */
+        parh5D_read,     /* read         */
+        parh5D_write,    /* write        */
+        parh5D_get,      /* get          */
+        parh5D_specific, /* specific     */
+        parh5D_optional, /* optional     */
+        parh5D_close     /* close        */
     },
     {
         /* datatype_cls */
