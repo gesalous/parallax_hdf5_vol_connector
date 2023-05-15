@@ -1,0 +1,14 @@
+build/
+compile_commands.json
+.clangd/
+__pycache__/
+*.py[cod]
+*$py.class
+.ccls-cache/
+.ccls-root
+.gitlab-ci-local
+.cache
+docs/html
+docs/xml
+docs/latex
+*.tmp
