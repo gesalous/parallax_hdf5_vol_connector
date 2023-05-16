@@ -12,3 +12,6 @@ docs/html
 docs/xml
 docs/latex
 *.tmp
+*Makefile*
+*cmake*
+*CMakeFiles*
