@@ -50,6 +50,7 @@ herr_t parh5_property_list_iterator(hid_t prop_id, const char *name, void *iter_
 
 herr_t parh5_initialize(hid_t vipl_id)
 {
+	(void)vipl_id;
 	connector = calloc(1, sizeof(*connector));
 	pthread_rwlock_init(&connector->file_map_lock, NULL);
 	log_debug("Initialized parallax plugin");

@@ -1,5 +1,4 @@
 #include "parallax_vol_file.h"
-#include "parallax/structures.h"
 #include "parallax_vol_connector.h"
 #include "uthash.h"
 #include <H5Fpublic.h>
@@ -15,16 +14,17 @@
 #include <unistd.h>
 
 struct parh5F_file {
+	parh5_object_e obj_type;
 	const char *file_name;
 	par_handle db;
 };
 
-static inline const char *parh5F_get_file_name(parh5F_file_t file)
+inline const char *parh5F_get_file_name(parh5F_file_t file)
 {
 	return file ? file->file_name : NULL;
 }
 
-static inline par_handle parh5F_get_parallax_db(parh5F_file_t file)
+inline par_handle parh5F_get_parallax_db(parh5F_file_t file)
 {
 	return file ? file->db : NULL;
 }
@@ -48,6 +48,7 @@ static parh5F_file_t parh5F_new_file(const char *file_name)
 		_exit(EXIT_FAILURE);
 	}
 	file->file_name = strdup(file_name);
+	file->obj_type = PAR_H5_FILE;
 	return file;
 }
 
