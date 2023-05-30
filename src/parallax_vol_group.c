@@ -39,7 +39,7 @@ static inline bool parh5G_check_group_params(parh5G_group_t group)
   * @param group reference to the group object
   * @return parallax db reference or NULL on error
 */
-static inline par_handle parh5G_get_parallax_db(parh5G_group_t group)
+inline par_handle parh5G_get_parallax_db(parh5G_group_t group)
 {
 	assert(group);
 	return group ? group->par_db : NULL;
@@ -58,6 +58,7 @@ static bool parh5G_construct_group_uuid(parh5G_group_t group)
 		_exit(EXIT_FAILURE);
 	}
 	group->uuid = djb2_hash((unsigned char *)group->group_name, strlen(group->group_name));
+	log_debug("group uuid = %lu", group->uuid);
 	group->uuid_valid = true;
 	return true;
 }
@@ -130,6 +131,10 @@ static bool parh5G_save_group(parh5G_group_t group)
 inline const char *parh5G_get_group_name(parh5G_group_t group)
 {
 	return group ? group->group_name : NULL;
+}
+uint64_t parh5G_get_group_uuid(parh5G_group_t group)
+{
+	return group ? group->uuid : 0;
 }
 
 bool parh5G_add_dataset(parh5G_group_t group, const char *dataset_name, const char **error_message)

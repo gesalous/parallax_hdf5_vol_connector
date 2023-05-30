@@ -25,6 +25,8 @@
 #define PARALLAX_VOL_CONNECTOR_VALUE ((H5VL_class_value_t)12202)
 #define PARALLAX_VOL_CONNECTOR_NAME "parallax_vol_connector"
 
+#define PARH5_SUCCESS 0
+#define PARH5_FAILURE 1
 typedef enum { PAR_H5_FILE = 1, PAR_H5_GROUP = 2, PAR_H5_DATASET = 3 } parh5_object_e;
 
 herr_t parh5_property_list_iterator(hid_t prop_id, const char *name, void *iter_data);
