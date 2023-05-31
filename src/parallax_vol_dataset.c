@@ -52,7 +52,7 @@ struct parh5D_dataset {
 	parh5_object_e obj_type;
 	parh5G_group_t group; /*Where does this dataset belongs*/
 	char *name;
-	uint64_t dataset_uuid;
+	uint64_t uuid;
 	hid_t space_id; /*info about the space*/
 	hid_t type_id; /*info about its schema*/
 };
@@ -137,7 +137,7 @@ static bool parh5D_fetch_tile(struct parh5D_tile_cursor *cursor, uint64_t tile_u
 	assert(par_value.val_buffer == NULL || par_value.val_size == tile_size);
 	if (error)
 		log_debug("Tile with uuid: %lu does not exist", tile_uuid);
-	return NULL == error ? false : true;
+	return NULL == error ? true : false;
 }
 /**
  * @brief Fetches the the tile with uuid from parallax
@@ -232,7 +232,7 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 		actual_tile_size = PARH5D_TILE_SIZE_IN_ELEMS - (storage_elem_id % PARH5D_TILE_SIZE_IN_ELEMS);
 	}
 
-	cursor->tile.uuid = parh5D_create_tile_uuid(dataset->dataset_uuid, storage_tile_id);
+	cursor->tile.uuid = parh5D_create_tile_uuid(dataset->uuid, storage_tile_id);
 	cursor->tile.tile_buffer = mem;
 	cursor->tile.size_in_bytes = H5Tget_size(cursor->memtype) * PARH5D_TILE_SIZE_IN_ELEMS;
 	cursor->mem_elem_id = PARH5D_TILE_SIZE_IN_ELEMS;
@@ -305,7 +305,7 @@ static bool parh5D_advance_tile_wcursor(struct parh5D_tile_cursor *cursor)
 		_exit(EXIT_FAILURE);
 	}
 	uint32_t storage_elem_id = parh5D_get_id_from_coords(coords, cursor->shape, cursor->ndims);
-	cursor->tile.uuid = parh5D_create_tile_uuid(cursor->dataset->dataset_uuid, storage_elem_id);
+	cursor->tile.uuid = parh5D_create_tile_uuid(cursor->dataset->uuid, storage_elem_id);
 
 	parh5D_free_tile_buffer(&cursor->tile);
 
@@ -375,22 +375,84 @@ static char *parh5D_serialize_dataset(struct parh5D_dataset *dset, size_t *buf_s
 	size_t idx = 0;
 	char *buffer = NULL;
 	while (1) {
+		idx = 0;
 		buffer = calloc(1UL, buffer_size);
 		remaining_bytes = buffer_size;
-		size_t space_needed = strlen(dset->name) + 1;
+		size_t name_size = strlen(dset->name) + 1;
+		log_debug("Dataset name to serialize is %s of size: %lu B", dset->name, name_size);
+		size_t space_needed = sizeof(name_size) + name_size;
 		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
-		memcpy(&buffer[idx], dset->name, space_needed);
+		//first dataset name string size
+		memcpy(&buffer[idx], &name_size, sizeof(name_size));
+		idx += sizeof(name_size);
+		memcpy(&buffer[idx], dset->name, name_size);
+		idx += name_size;
+		remaining_bytes -= space_needed;
+		space_needed = sizeof(dset->uuid);
+		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
+		memcpy(&buffer[idx], &dset->uuid, space_needed);
 		idx += space_needed;
 		remaining_bytes -= space_needed;
-		space_needed = sizeof(dset->dataset_uuid);
+
+		H5Sencode2(dset->space_id, NULL, &space_needed, 0);
 		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
-		memcpy(&buffer[idx], &dset->dataset_uuid, space_needed);
+		log_debug("Space needed to encode: %lu remaining_bytes %lu", space_needed, remaining_bytes);
+
+		if (H5Sencode2(dset->space_id, &buffer[idx], &space_needed, 0) < 0) {
+			log_fatal("Failed tp encode");
+			_exit(EXIT_FAILURE);
+		}
 		idx += space_needed;
 		remaining_bytes -= space_needed;
-		if (H5Sencode2(dset->space_id, buffer, &remaining_bytes, 0) < 0)
-			continue;
 		*buf_size = buffer_size - remaining_bytes;
+		log_debug("Dataset name to serialize is %s of size: %lu B with total bytes %lu", dset->name, name_size,
+			  *buf_size);
 		return buffer;
+	}
+}
+
+/**
+ * @brief Deserializes the contents of a buffer into a dataspace object
+ * @param [in] dataset pointer to the daset object which contents we fill
+ * @param [in] buffer pointer to the buffer which contains the serialized data
+ * @param [in] buffer_size the size of the buffer
+ */
+static void parh5D_deserialize_dataset(parh5D_dataset_t dataset, char *buffer, size_t buffer_size)
+{
+	(void)buffer_size;
+	size_t idx = 0;
+	size_t name_size = 0;
+	memcpy(&name_size, &buffer[idx], sizeof(name_size));
+	idx += sizeof(name_size);
+	dataset->name = calloc(1UL, name_size);
+	memcpy(dataset->name, &buffer[idx], name_size);
+	idx += name_size;
+
+	memcpy(&dataset->uuid, &buffer[idx], sizeof(dataset->uuid));
+	idx += sizeof(dataset->uuid);
+
+	dataset->space_id = H5Sdecode(&buffer[idx]);
+	// Retrieve information about the dataspace
+	// int rank = H5Sget_simple_extent_ndims(dataset->space_id);
+	// hsize_t dims[PARH5D_MAX_DIMENSIONS];
+	// hsize_t maxdims[PARH5D_MAX_DIMENSIONS];
+	// H5Sget_simple_extent_dims(dataset->space_id, dims, maxdims);
+
+	// // Print the dataspace information
+	// printf("Rank: %d\n", rank);
+	// printf("Dimensions: ");
+	// for (int i = 0; i < rank; i++) {
+	// 	printf("%llu ", (unsigned long long)dims[i]);
+	// }
+	// printf("\n");
+	// printf("Max Dimensions: ");
+	// for (int i = 0; i < rank; i++) {
+	// 	printf("%llu ", (unsigned long long)maxdims[i]);
+	// }
+	// printf("\n");
+	if (dataset->space_id <= 0) {
+		log_fatal("Failed to deserialize the space id of the dataset");
+		_exit(EXIT_FAILURE);
 	}
 }
 
@@ -402,12 +464,12 @@ static bool parh5G_store_dataset(parh5D_dataset_t dataset, const char **error_me
 		assert(0);
 		_exit(EXIT_FAILURE);
 	}
-	struct par_key par_key = { .size = sizeof(group_uuid), .data = (char *)&group_uuid };
+	struct par_key group_key = { .size = sizeof(group_uuid), .data = (char *)&group_uuid };
 	struct par_value par_value = { 0 };
 	const char *error = NULL;
-	par_get(parh5G_get_parallax_db(dataset->group), &par_key, &par_value, &error);
+	par_get(parh5G_get_parallax_db(dataset->group), &group_key, &par_value, &error);
 	if (error) {
-		log_debug("Could not find key: %.*s reason: %s", par_key.size, par_key.data, error);
+		log_debug("Could not find key: %.*s reason: %s", group_key.size, group_key.data, error);
 		return false;
 	}
 	/*Unroll dataset*/
@@ -421,8 +483,11 @@ static bool parh5G_store_dataset(parh5D_dataset_t dataset, const char **error_me
 	}
 	size_t buffer_size = 0;
 	char *buffer = parh5D_serialize_dataset(dataset, &buffer_size);
-	struct par_value new_par_value = { .val_size = buffer_size, .val_buffer = buffer };
-	struct par_key_value KV = { .k = par_key, .v = new_par_value };
+	struct par_key dataset_key = { .size = sizeof(dataset->uuid), .data = (char *)&dataset->uuid };
+	struct par_value new_par_value = { .val_buffer_size = buffer_size,
+					   .val_size = buffer_size,
+					   .val_buffer = buffer };
+	struct par_key_value KV = { .k = dataset_key, .v = new_par_value };
 	par_put(parh5G_get_parallax_db(dataset->group), &KV, &error);
 
 	if (error) {
@@ -436,7 +501,6 @@ static bool parh5G_store_dataset(parh5D_dataset_t dataset, const char **error_me
 void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t type_id,
 		    hid_t space_id, hid_t dcpl_id, hid_t dapl_id, hid_t dxpl_id, void **req)
 {
-	(void)obj;
 	(void)type_id;
 	(void)loc_params;
 	(void)name;
@@ -458,7 +522,7 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	log_debug("Creating dataspace for group uuid: %lu", parh5G_get_group_uuid(group));
 	dataset->group = group;
 	dataset->space_id = H5Scopy(space_id);
-	dataset->dataset_uuid = parh5D_create_uuid(dataset, name);
+	dataset->uuid = parh5D_create_uuid(dataset, name);
 	log_debug("Dimensions of new dataspace are %d", H5Sget_simple_extent_ndims(dataset->space_id));
 	const char *error_message = NULL;
 	parh5G_store_dataset(dataset, &error_message);
@@ -469,15 +533,37 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 void *parh5D_open(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t dapl_id, hid_t dxpl_id,
 		  void **req)
 {
-	(void)obj;
 	(void)loc_params;
-	(void)name;
 	(void)dapl_id;
 	(void)dxpl_id;
 	(void)req;
-	log_fatal("Dataset: Sorry unimplemented function XXX TODO XXX");
-	_exit(EXIT_FAILURE);
-	return NULL;
+	parh5_object_e *obj_type = (parh5_object_e *)obj;
+
+	if (PAR_H5_GROUP != *obj_type) {
+		log_fatal("Dataset can only be associated with a group object");
+		_exit(EXIT_FAILURE);
+	}
+	parh5G_group_t group = obj;
+	parh5D_dataset_t dataset = calloc(1UL, sizeof(struct parh5D_dataset));
+	dataset->obj_type = PAR_H5_DATASET;
+	dataset->group = group;
+	dataset->uuid = parh5D_create_uuid(dataset, name);
+	struct par_key par_key = { .size = sizeof(dataset->uuid), .data = (char *)&dataset->uuid };
+	struct par_value par_value = { 0 };
+	const char *error = NULL;
+	par_get(parh5G_get_parallax_db(dataset->group), &par_key, &par_value, &error);
+	if (error) {
+		log_debug("Dataset with uuid: %lu does not exist reason: %s", dataset->uuid, error);
+		free(dataset);
+		return NULL;
+	}
+
+	log_debug("Found dataset with name: %s and uuid: %lu of size: %u proceeding to deserialize it...", name,
+		  dataset->uuid, par_value.val_size);
+	parh5D_deserialize_dataset(dataset, par_value.val_buffer, par_value.val_size);
+	free(par_value.val_buffer);
+	log_debug("Deserialization success of %s", name);
+	return dataset;
 }
 
 herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_space_id[], hid_t file_space_id[],
@@ -510,29 +596,37 @@ herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_sp
 		_exit(EXIT_FAILURE);
 	}
 
-	hid_t real_file_space_id = file_space_id == H5S_ALL ? dataset->space_id : file_space_id[0];
-	hid_t real_mem_space_id = mem_space_id == H5S_ALL ? dataset->space_id : mem_space_id[0];
+	hid_t real_file_space_id = file_space_id[0] == H5S_ALL ? dataset->space_id : file_space_id[0];
+	hid_t real_mem_space_id = mem_space_id[0] == H5S_ALL ? dataset->space_id : mem_space_id[0];
 
 	/* Get number of elements in selections */
 	hssize_t num_elem_file = -1;
-	if ((num_elem_file = H5Sget_select_npoints(real_file_space_id)) < 0)
+	if ((num_elem_file = H5Sget_select_npoints(real_file_space_id)) < 0) {
 		log_fatal("can't get number of points in file selection");
+		_exit(EXIT_FAILURE);
+	}
 	hssize_t num_elem_mem = -1;
-	if ((num_elem_mem = H5Sget_select_npoints(real_mem_space_id)) < 0)
+	if ((num_elem_mem = H5Sget_select_npoints(real_mem_space_id)) < 0) {
 		log_fatal("can't get number of points in memory selection");
+		_exit(EXIT_FAILURE);
+	}
 
 	/* Various sanity and special case checks */
-	if (num_elem_file != num_elem_mem)
+	if (num_elem_file != num_elem_mem) {
 		log_fatal("number of elements selected in file and memory dataspaces is different");
+		_exit(EXIT_FAILURE);
+	}
 
-	if (num_elem_file && !buf)
+	if (num_elem_file && !buf) {
 		log_fatal("write buffer is NULL but selection has >0 elements");
+		_exit(EXIT_FAILURE);
+	}
 
 	if (num_elem_file == 0)
 		return PARH5_SUCCESS;
 
 	struct parh5D_tile_cursor *cursor =
-		parh5D_create_tile_cursor(dataset, buf[0], mem_type_id[0], file_space_id[0], PARH5D_READ_CURSOR);
+		parh5D_create_tile_cursor(dataset, buf[0], mem_type_id[0], real_file_space_id, PARH5D_READ_CURSOR);
 	for (bool ret = true; cursor != NULL && ret; ret = parh5D_advance_tile_wcursor(cursor))
 		;
 	parh5D_close_cursor(cursor);
@@ -614,6 +708,9 @@ herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_sp
 herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_space_id[], hid_t file_space_id[],
 		    hid_t dxpl_id, const void *buf[], void **req)
 {
+	(void)req;
+	(void)dxpl_id;
+
 	if (0 == count) {
 		log_warn("Zero operations defined?");
 		return PARH5_SUCCESS;
@@ -653,8 +750,7 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 	/* Get number of elements in selections */
 	hssize_t num_elem_file = -1;
 	if ((num_elem_file = H5Sget_select_npoints(real_file_space_id)) < 0) {
-		log_fatal("can't get number of points in file selection for dataset: %s filespace id = %ld",
-			  dataset->name, file_space_id);
+		log_fatal("can't get number of points in file selection for dataset: %s", dataset->name);
 		_exit(EXIT_FAILURE);
 	}
 
@@ -694,21 +790,36 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 		log_debug("Writing tile uuid: %lu....", cursor->tile.uuid);
 		parh5D_write_tile(cursor->dataset, cursor->tile.uuid, cursor->tile.tile_buffer,
 				  cursor->tile.size_in_bytes);
-		log_debug("Writing tile uuid: %lu SUCCESS", cursor->tile.uuid);
+		// log_debug("Writing tile uuid: %lu SUCCESS", cursor->tile.uuid);
 	}
 	parh5D_close_cursor(cursor);
 	return PARH5_SUCCESS;
 }
 
-herr_t parh5D_get(void *obj, H5VL_dataset_get_args_t *args, hid_t dxpl_id, void **req)
+herr_t parh5D_get(void *obj, H5VL_dataset_get_args_t *get_op, hid_t dxpl_id, void **req)
 {
-	(void)obj;
-	(void)args;
 	(void)dxpl_id;
 	(void)req;
-	log_fatal("Dataset: Sorry unimplemented function XXX TODO XXX");
-	_exit(EXIT_FAILURE);
-	return 1;
+	parh5_object_e *obj_type = (parh5_object_e *)obj;
+	if (PAR_H5_DATASET != *obj_type) {
+		log_fatal("Object is not a dataset!");
+		_exit(EXIT_FAILURE);
+	}
+	parh5D_dataset_t dataset = obj;
+
+	switch (get_op->op_type) {
+	case H5VL_DATASET_GET_SPACE:
+		log_debug("HDF5 wants to know about space of dataset: %s", dataset->name);
+		get_op->args.get_space.space_id = dataset->space_id;
+		break;
+	default:
+		log_debug("Sorry HDF5 cannot answer that yet");
+		assert(0);
+		_exit(EXIT_FAILURE);
+		break;
+	}
+
+	return PARH5_SUCCESS;
 }
 
 herr_t parh5D_specific(void *obj, H5VL_dataset_specific_args_t *args, hid_t dxpl_id, void **req)

@@ -11,6 +11,7 @@
 #define PAR_TEST_DIMENSION_1 100
 #define PAR_TEST_DIMENSION_2 50
 #define PAR_TEST_DIMENSION_3 20
+#define PAR_TEST_DOUBLE_VALUE 1.0
 
 bool par_test_write_array(char *file_name, char *group_name, char *dataset_name, hid_t vol_id)
 {
@@ -46,11 +47,11 @@ bool par_test_write_array(char *file_name, char *group_name, char *dataset_name,
 				      H5P_DEFAULT);
 	log_debug("Created dataset: %s SUCCESS", dataset_name);
 
-	// Initialize the data array with value 1.0
+	// Initialize the data array with value
 	for (int dim_id_1 = 0; dim_id_1 < PAR_TEST_DIMENSION_1; dim_id_1++) {
 		for (int dim_id_2 = 0; dim_id_2 < PAR_TEST_DIMENSION_2; dim_id_2++) {
 			for (int dim_id_3 = 0; dim_id_3 < PAR_TEST_DIMENSION_3; dim_id_3++) {
-				data[dim_id_1][dim_id_2][dim_id_3] = 1.0;
+				data[dim_id_1][dim_id_2][dim_id_3] = PAR_TEST_DOUBLE_VALUE;
 			}
 		}
 	}
@@ -76,13 +77,19 @@ static bool par_test_read_array(char *file_name, char *group_name, char *dataset
 	// Open the HDF5 file
 	hid_t fapl_id = H5Pcreate(H5P_FILE_ACCESS);
 	H5Pset_vol(fapl_id, vol_id, NULL);
+	log_debug("Open file for read...");
 	hid_t file_id = H5Fopen(file_name, H5F_ACC_RDONLY, fapl_id);
+	log_debug("Open file for read...SUCCESS");
 
 	// Open the group within the file
+	log_debug("Open group for read...");
 	hid_t group_id = H5Gopen2(file_id, group_name, H5P_DEFAULT);
+	log_debug("Open group for read...SUCCESS");
 
 	// Open the dataset within the group
+	log_debug("Open dataset for read...");
 	hid_t dataset_id = H5Dopen2(group_id, dataset_name, H5P_DEFAULT);
+	log_debug("Open dataset for read...SUCCESS");
 
 	// Get the dataspace of the dataset
 	hid_t dataspace_id = H5Dget_space(dataset_id);
@@ -94,9 +101,9 @@ static bool par_test_read_array(char *file_name, char *group_name, char *dataset
 	for (int dim_id_1 = 0; dim_id_1 < PAR_TEST_DIMENSION_1; dim_id_1++) {
 		for (int dim_id_2 = 0; dim_id_2 < PAR_TEST_DIMENSION_2; dim_id_2++) {
 			for (int dim_id_3 = 0; dim_id_3 < PAR_TEST_DIMENSION_3; dim_id_3++) {
-				if (data[dim_id_1][dim_id_2][dim_id_3] != 1.0) {
-					log_fatal("Corrupted array should have been 1.0 instead got %lf",
-						  data[dim_id_1][dim_id_2][dim_id_3]);
+				if (data[dim_id_1][dim_id_2][dim_id_3] != PAR_TEST_DOUBLE_VALUE) {
+					log_fatal("Corrupted array should have been %lf instead got %lf",
+						  PAR_TEST_DOUBLE_VALUE, data[dim_id_1][dim_id_2][dim_id_3]);
 					_exit(EXIT_FAILURE);
 				}
 			}

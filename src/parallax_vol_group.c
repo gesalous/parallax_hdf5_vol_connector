@@ -209,9 +209,7 @@ static parh5G_group_t parh5G_new_group(parh5F_file_t file, const char *name)
 void *parh5G_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t gcpl_id,
 		    hid_t gapl_id, hid_t dxpl_id, void **req)
 {
-	(void)obj;
 	(void)loc_params;
-	(void)name;
 	(void)lcpl_id;
 	(void)gcpl_id;
 	(void)gapl_id;
@@ -239,15 +237,26 @@ void *parh5G_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 void *parh5G_open(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t gapl_id, hid_t dxpl_id,
 		  void **req)
 {
-	(void)obj;
 	(void)loc_params;
 	(void)name;
 	(void)gapl_id;
 	(void)dxpl_id;
 	(void)req;
-	log_fatal("Group: Sorry unimplemented function XXX TODO XXX");
-	_exit(EXIT_FAILURE);
-	return NULL;
+	parh5_object_e *obj_type = (parh5_object_e *)obj;
+	if (PAR_H5_FILE != *obj_type) {
+		log_fatal("Parent object is not a file");
+		_exit(EXIT_FAILURE);
+	}
+	parh5F_file_t file = (parh5F_file_t)obj;
+
+	parh5G_group_t group = parh5G_new_group(file, name);
+	if (!parh5G_group_exists(group)) {
+		log_warn("Group: %s already exists", name);
+		free(group);
+		return NULL;
+	}
+	log_debug("OK found group %s", name);
+	return group;
 }
 
 herr_t parh5G_get(void *obj, H5VL_group_get_args_t *args, hid_t dxpl_id, void **req)
