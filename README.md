@@ -1,12 +1,6 @@
-# HDF5 VOL connector template
+# Parallax VOL Connector
 
-This is a template for creating an HDF5 virtual object layer (VOL) connector.
-
-Copy this code into your own repository and modify the source, test, and build files as needed to implement your own functionality. This repository is listed as a template on github, so you should be able to rename it appropriately when you fork it (don't forget to change the VOL name and value, though).
-
-The code included in the source directory builds an "empty" VOL connector which has no functionality aside from being capable of registration. Although lacking as a "real" VOL connector, this shell can still serve as a useful test of whether dynamic plugin loading is working.
-
-NOTE: This template targets HDF5 1.13.0. The VOL API in HDF5 1.12.x is no longer supported for VOL connector development.
+This is an HDF5 (https://www.hdfgroup.org/solutions/hdf5/) Virtual Object Layer plugin for Parallax (https://github.com/CARV-ICS-FORTH/parallax) key value store. This plugin enables HDF5 to store multidimensional arrays atop of fast storage devices such as NVMe SSDs with the use of Parallax KV store.
 
 
 ## Getting started
