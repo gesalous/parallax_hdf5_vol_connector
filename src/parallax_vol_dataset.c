@@ -175,7 +175,7 @@ static void parh5D_write_tile(parh5D_dataset_t dataset, uint64_t tile_uuid, char
 {
 	//Sorry misalinged access need to fetch it
 	struct par_key par_key = { .size = sizeof(tile_uuid), .data = (char *)&tile_uuid };
-	struct par_value par_value = { .val_buffer = buffer, .val_buffer_size = tile_size };
+	struct par_value par_value = { .val_buffer = buffer, .val_size = tile_size };
 	const char *error = NULL;
 	struct par_key_value KV = { .k = par_key, .v = par_value };
 	par_put(parh5G_get_parallax_db(dataset->group), &KV, &error);
@@ -199,15 +199,20 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 {
 	struct parh5D_tile_cursor *cursor = calloc(1UL, sizeof(*cursor));
 	cursor->cursor_type = cursor_type;
-
+	cursor->dataset = dataset;
 	cursor->mem_buf = mem;
 	cursor->mem_elem_id = 0;
-
+	cursor->memtype = memtype;
 	cursor->ndims = H5Sget_simple_extent_ndims(file_space);
 	if (cursor->ndims < 0) {
 		log_fatal("Failed to get dimensions");
 		_exit(EXIT_FAILURE);
 	}
+	if (H5Sget_simple_extent_dims(file_space, cursor->shape, NULL) < 0) {
+		log_fatal("Failed to get the shape of the array");
+		_exit(EXIT_FAILURE);
+	}
+
 	/* Get number of elements in selections */
 	cursor->nelems = H5Sget_select_npoints(file_space);
 	H5Sget_select_bounds(file_space, cursor->start_coords, cursor->end_coords);
@@ -288,8 +293,10 @@ static void parh5D_free_tile_buffer(struct parh5D_tile *tile)
  */
 static bool parh5D_advance_tile_wcursor(struct parh5D_tile_cursor *cursor)
 {
-	if (cursor->mem_elem_id >= cursor->nelems)
+	if (cursor->mem_elem_id >= cursor->nelems) {
+		log_debug("End of cursor");
 		return false;
+	}
 
 	hsize_t coords[PARH5D_MAX_DIMENSIONS];
 	if (!parh5D_get_coordinates(cursor->mem_elem_id, cursor->ndims, cursor->shape, cursor->start_coords,
@@ -632,16 +639,24 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 		_exit(EXIT_FAILURE);
 	}
 
-	hid_t real_file_space_id = file_space_id == H5S_ALL ? dataset->space_id : file_space_id[0];
-	hid_t real_mem_space_id = mem_space_id == H5S_ALL ? dataset->space_id : mem_space_id[0];
+	hid_t real_file_space_id = file_space_id[0] == H5S_ALL ? dataset->space_id : file_space_id[0];
+	hid_t real_mem_space_id = mem_space_id[0] == H5S_ALL ? dataset->space_id : mem_space_id[0];
+
+	hssize_t num_elem_mem = -1;
+	if ((num_elem_mem = H5Sget_select_npoints(real_mem_space_id)) < 0) {
+		log_fatal("can't get number of points in memory selection");
+		assert(0);
+		_exit(EXIT_FAILURE);
+	}
+	log_debug("Mem n points are: %ld", num_elem_mem);
 
 	/* Get number of elements in selections */
 	hssize_t num_elem_file = -1;
-	if ((num_elem_file = H5Sget_select_npoints(real_file_space_id)) < 0)
-		log_fatal("can't get number of points in file selection");
-	hssize_t num_elem_mem = -1;
-	if ((num_elem_mem = H5Sget_select_npoints(real_mem_space_id)) < 0)
-		log_fatal("can't get number of points in memory selection");
+	if ((num_elem_file = H5Sget_select_npoints(real_file_space_id)) < 0) {
+		log_fatal("can't get number of points in file selection for dataset: %s filespace id = %ld",
+			  dataset->name, file_space_id);
+		_exit(EXIT_FAILURE);
+	}
 
 	/* Various sanity and special case checks */
 	if (num_elem_file != num_elem_mem)
@@ -675,9 +690,12 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 
 	struct parh5D_tile_cursor *cursor = parh5D_create_tile_cursor(dataset, (void *)buf[0], mem_type_id[0],
 								      real_file_space_id, PARH5D_WRITE_CURSOR);
-	for (bool ret = true; cursor != NULL && ret; ret = parh5D_advance_tile_wcursor(cursor))
+	for (bool ret = true; cursor != NULL && ret; ret = parh5D_advance_tile_wcursor(cursor)) {
+		log_debug("Writing tile uuid: %lu....", cursor->tile.uuid);
 		parh5D_write_tile(cursor->dataset, cursor->tile.uuid, cursor->tile.tile_buffer,
 				  cursor->tile.size_in_bytes);
+		log_debug("Writing tile uuid: %lu SUCCESS", cursor->tile.uuid);
+	}
 	parh5D_close_cursor(cursor);
 	return PARH5_SUCCESS;
 }
@@ -720,7 +738,11 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 	(void)dset;
 	(void)dxpl_id;
 	(void)req;
-	log_fatal("Dataset: Sorry unimplemented function XXX TODO XXX");
-	_exit(EXIT_FAILURE);
-	return 1;
+	parh5_object_e *obj_type = (parh5_object_e *)dset;
+	if (PAR_H5_DATASET != *obj_type) {
+		log_fatal("Dataset write can only be associated with a file object");
+		_exit(EXIT_FAILURE);
+	}
+	free(dset);
+	return PARH5_SUCCESS;
 }

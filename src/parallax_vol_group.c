@@ -223,7 +223,6 @@ void *parh5G_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 		log_fatal("Group can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}
-
 	parh5F_file_t file = (parh5F_file_t)obj;
 	log_debug("Creating group %s for file %s", name, parh5F_get_file_name(file));
 	parh5G_group_t group = parh5G_new_group(file, name);
@@ -232,6 +231,7 @@ void *parh5G_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 		return NULL;
 	}
 	parh5G_save_group(group);
+	log_debug("Created group %s SUCCESS", name);
 
 	return group;
 }
@@ -285,10 +285,13 @@ herr_t parh5G_optional(void *obj, H5VL_optional_args_t *args, hid_t dxpl_id, voi
 
 herr_t parh5G_close(void *grp, hid_t dxpl_id, void **req)
 {
-	(void)grp;
 	(void)dxpl_id;
 	(void)req;
-	log_fatal("Group: Sorry unimplemented function XXX TODO XXX");
-	_exit(EXIT_FAILURE);
-	return 1;
+	parh5_object_e *obj_type = (parh5_object_e *)grp;
+	if (PAR_H5_GROUP != *obj_type) {
+		log_fatal("Object is not a Group object!");
+		_exit(EXIT_FAILURE);
+	}
+	free(grp);
+	return PARH5_SUCCESS;
 }

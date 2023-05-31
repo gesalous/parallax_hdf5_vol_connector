@@ -39,7 +39,7 @@ static parh5F_file_t parh5F_new_file(const char *file_name)
 	db_options.options[GROWTH_FACTOR].value = PARALLAX_GROWTH_FACTOR;
 	db_options.options[PRIMARY_MODE].value = 1;
 
-	parh5F_file_t file = calloc(1, sizeof(struct parh5F_file));
+	parh5F_file_t file = calloc(1UL, sizeof(struct parh5F_file));
 	const char *error_message = NULL;
 	file->db = par_open(&db_options, &error_message);
 
@@ -81,7 +81,7 @@ void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_
 	(void)fapl_id;
 	(void)dxpl_id;
 	(void)req;
-	log_debug("PAR_FILE_class name: %s flags %s", name, parh5F_flags2s(flags));
+	log_debug("creating new file: %s flags %s", name, parh5F_flags2s(flags));
 	return parh5F_new_file(name);
 }
 
