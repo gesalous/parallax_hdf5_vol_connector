@@ -46,12 +46,12 @@ bool par_test_write_array(char *file_name, char *group_name, char *dataset_name,
 	hid_t dataset_id = H5Dcreate2(group_id, dataset_name, H5T_NATIVE_DOUBLE, dataspace_id, H5P_DEFAULT, H5P_DEFAULT,
 				      H5P_DEFAULT);
 	log_debug("Created dataset: %s SUCCESS", dataset_name);
-
+	double value = PAR_TEST_DOUBLE_VALUE;
 	// Initialize the data array with value
 	for (int dim_id_1 = 0; dim_id_1 < PAR_TEST_DIMENSION_1; dim_id_1++) {
 		for (int dim_id_2 = 0; dim_id_2 < PAR_TEST_DIMENSION_2; dim_id_2++) {
 			for (int dim_id_3 = 0; dim_id_3 < PAR_TEST_DIMENSION_3; dim_id_3++) {
-				data[dim_id_1][dim_id_2][dim_id_3] = PAR_TEST_DOUBLE_VALUE;
+				data[dim_id_1][dim_id_2][dim_id_3] = value++;
 			}
 		}
 	}
@@ -96,14 +96,14 @@ static bool par_test_read_array(char *file_name, char *group_name, char *dataset
 
 	// Read the data from the dataset
 	H5Dread(dataset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
-
+	double value = PAR_TEST_DOUBLE_VALUE;
 	// Print the values of the array
 	for (int dim_id_1 = 0; dim_id_1 < PAR_TEST_DIMENSION_1; dim_id_1++) {
 		for (int dim_id_2 = 0; dim_id_2 < PAR_TEST_DIMENSION_2; dim_id_2++) {
 			for (int dim_id_3 = 0; dim_id_3 < PAR_TEST_DIMENSION_3; dim_id_3++) {
-				if (data[dim_id_1][dim_id_2][dim_id_3] != PAR_TEST_DOUBLE_VALUE) {
-					log_fatal("Corrupted array should have been %lf instead got %lf",
-						  PAR_TEST_DOUBLE_VALUE, data[dim_id_1][dim_id_2][dim_id_3]);
+				if (data[dim_id_1][dim_id_2][dim_id_3] != value++) {
+					log_fatal("Corrupted array should have been %lf instead got %lf", value,
+						  data[dim_id_1][dim_id_2][dim_id_3]);
 					_exit(EXIT_FAILURE);
 				}
 			}

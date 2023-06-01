@@ -1,4 +1,5 @@
 #include "parallax_vol_dataset.h"
+#include "H5Ppublic.h"
 #include "H5Spublic.h"
 #include "H5Tpublic.h"
 #include "H5public.h"
@@ -55,6 +56,7 @@ struct parh5D_dataset {
 	uint64_t uuid;
 	hid_t space_id; /*info about the space*/
 	hid_t type_id; /*info about its schema*/
+	hid_t dcpl_id; /*dataset creation property list*/
 };
 
 /**
@@ -379,24 +381,24 @@ static char *parh5D_serialize_dataset(struct parh5D_dataset *dset, size_t *buf_s
 		buffer = calloc(1UL, buffer_size);
 		remaining_bytes = buffer_size;
 		size_t name_size = strlen(dset->name) + 1;
-		log_debug("Dataset name to serialize is %s of size: %lu B", dset->name, name_size);
 		size_t space_needed = sizeof(name_size) + name_size;
 		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
-		//first dataset name string size
+		//Dataset's name string size
 		memcpy(&buffer[idx], &name_size, sizeof(name_size));
 		idx += sizeof(name_size);
+		//Dataset's actual name
 		memcpy(&buffer[idx], dset->name, name_size);
 		idx += name_size;
 		remaining_bytes -= space_needed;
+		//Dataset's uuid
 		space_needed = sizeof(dset->uuid);
 		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
 		memcpy(&buffer[idx], &dset->uuid, space_needed);
 		idx += space_needed;
 		remaining_bytes -= space_needed;
-
+		//Dataset's space_id
 		H5Sencode2(dset->space_id, NULL, &space_needed, 0);
 		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
-		log_debug("Space needed to encode: %lu remaining_bytes %lu", space_needed, remaining_bytes);
 
 		if (H5Sencode2(dset->space_id, &buffer[idx], &space_needed, 0) < 0) {
 			log_fatal("Failed tp encode");
@@ -404,9 +406,31 @@ static char *parh5D_serialize_dataset(struct parh5D_dataset *dset, size_t *buf_s
 		}
 		idx += space_needed;
 		remaining_bytes -= space_needed;
+		//Dataset's type_id
+		H5Tencode(dset->type_id, NULL, &space_needed);
+		if (0 == space_needed) {
+			log_fatal("Failed to get the size of the type");
+			_exit(EXIT_FAILURE);
+		}
+		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
+
+		if (H5Tencode(dset->type_id, &buffer[idx], &space_needed) < 0) {
+			log_fatal("Failed to serialize dataset type buffer");
+			_exit(EXIT_FAILURE);
+		}
+		idx += space_needed;
+		remaining_bytes -= space_needed;
+		//Now the dataset creation property list
+		H5Pencode1(dset->dcpl_id, NULL, &space_needed);
+		log_debug("Space need for pl is %lu", space_needed);
+		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
+		if (H5Pencode1(dset->dcpl_id, &buffer[idx], &space_needed) < 0) {
+			log_fatal("Failed to serialize dataset creation propery list");
+			_exit(EXIT_FAILURE);
+		}
+		idx += space_needed;
+		remaining_bytes -= space_needed;
 		*buf_size = buffer_size - remaining_bytes;
-		log_debug("Dataset name to serialize is %s of size: %lu B with total bytes %lu", dset->name, name_size,
-			  *buf_size);
 		return buffer;
 	}
 }
@@ -422,38 +446,34 @@ static void parh5D_deserialize_dataset(parh5D_dataset_t dataset, char *buffer, s
 	(void)buffer_size;
 	size_t idx = 0;
 	size_t name_size = 0;
+	//get the name
 	memcpy(&name_size, &buffer[idx], sizeof(name_size));
 	idx += sizeof(name_size);
 	dataset->name = calloc(1UL, name_size);
 	memcpy(dataset->name, &buffer[idx], name_size);
 	idx += name_size;
-
+	//get the dataset uuid
 	memcpy(&dataset->uuid, &buffer[idx], sizeof(dataset->uuid));
 	idx += sizeof(dataset->uuid);
-
+	//get the space id
 	dataset->space_id = H5Sdecode(&buffer[idx]);
-	// Retrieve information about the dataspace
-	// int rank = H5Sget_simple_extent_ndims(dataset->space_id);
-	// hsize_t dims[PARH5D_MAX_DIMENSIONS];
-	// hsize_t maxdims[PARH5D_MAX_DIMENSIONS];
-	// H5Sget_simple_extent_dims(dataset->space_id, dims, maxdims);
-
-	// // Print the dataspace information
-	// printf("Rank: %d\n", rank);
-	// printf("Dimensions: ");
-	// for (int i = 0; i < rank; i++) {
-	// 	printf("%llu ", (unsigned long long)dims[i]);
-	// }
-	// printf("\n");
-	// printf("Max Dimensions: ");
-	// for (int i = 0; i < rank; i++) {
-	// 	printf("%llu ", (unsigned long long)maxdims[i]);
-	// }
-	// printf("\n");
 	if (dataset->space_id <= 0) {
 		log_fatal("Failed to deserialize the space id of the dataset");
 		_exit(EXIT_FAILURE);
 	}
+	size_t size = 0;
+	H5Sencode2(dataset->space_id, NULL, &size, 0);
+	idx += size;
+	//Get the type id
+	dataset->type_id = H5Tdecode(&buffer[idx]);
+	if (dataset->type_id < 0) {
+		log_fatal("Failed to decode dataset type");
+		_exit(EXIT_FAILURE);
+	}
+	H5Tencode(dataset->type_id, NULL, &size);
+	idx += size;
+	//Get the dataset creation property list
+	dataset->dcpl_id = H5Pdecode(&buffer[idx]);
 }
 
 static bool parh5G_store_dataset(parh5D_dataset_t dataset, const char **error_message)
@@ -507,7 +527,6 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	(void)lcpl_id;
 	(void)dcpl_id;
 	(void)dapl_id;
-	(void)dxpl_id;
 	(void)req;
 	parh5_object_e *obj_type = (parh5_object_e *)obj;
 
@@ -519,6 +538,8 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 
 	parh5D_dataset_t dataset = calloc(1UL, sizeof(struct parh5D_dataset));
 	dataset->obj_type = PAR_H5_DATASET;
+	dataset->type_id = H5Tcopy(type_id);
+	dataset->dcpl_id = H5Pcopy(dcpl_id);
 	log_debug("Creating dataspace for group uuid: %lu", parh5G_get_group_uuid(group));
 	dataset->group = group;
 	dataset->space_id = H5Scopy(space_id);
@@ -812,8 +833,14 @@ herr_t parh5D_get(void *obj, H5VL_dataset_get_args_t *get_op, hid_t dxpl_id, voi
 		log_debug("HDF5 wants to know about space of dataset: %s", dataset->name);
 		get_op->args.get_space.space_id = dataset->space_id;
 		break;
+	case H5VL_DATASET_GET_TYPE:
+		get_op->args.get_type.type_id = dataset->type_id;
+		break;
+	case H5VL_DATASET_GET_DCPL:
+		get_op->args.get_dcpl.dcpl_id = dataset->dcpl_id;
+		break;
 	default:
-		log_debug("Sorry HDF5 cannot answer that yet");
+		log_debug("Sorry HDF5 cannot answer %d yet", get_op->op_type);
 		assert(0);
 		_exit(EXIT_FAILURE);
 		break;
