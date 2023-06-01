@@ -528,6 +528,7 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	(void)dcpl_id;
 	(void)dapl_id;
 	(void)req;
+	(void)dxpl_id;
 	parh5_object_e *obj_type = (parh5_object_e *)obj;
 
 	if (PAR_H5_GROUP != *obj_type) {
@@ -881,6 +882,11 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 		log_fatal("Dataset write can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}
-	free(dset);
+	parh5D_dataset_t dataset = dset;
+	H5Sclose(dataset->space_id);
+	H5Pclose(dataset->dcpl_id);
+	H5Tclose(dataset->type_id);
+	free(dataset->name);
+	free(dataset);
 	return PARH5_SUCCESS;
 }

@@ -116,6 +116,7 @@ herr_t parh5F_get(void *obj, H5VL_file_get_args_t *args, hid_t dxpl_id, void **r
 
 static void parh5F_handle_file_flush(parh5F_file_t file, H5VL_file_specific_args_t *file_query)
 {
+	log_warn("Flush of file: %s not implemented yet XXX TODO XXX", file->name);
 	switch (file_query->args.flush.obj_type) {
 	case H5I_UNINIT:
 	case H5I_BADID:
