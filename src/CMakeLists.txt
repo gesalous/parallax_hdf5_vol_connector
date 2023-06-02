@@ -1,29 +1,41 @@
-set(EXISTING_FLAGS "-fno-omit-frame-pointer -Wall")
-set(CMAKE_C_FLAGS "${EXISTING_FLAGS}")
+string(APPEND CMAKE_C_FLAGS_DEBUG " -Werror=format-security")
+string(APPEND CMAKE_C_FLAGS_RELEASE " -Werror=format-security")
 if(USE_ADDR_SANITIZER)
-  set(CMAKE_C_FLAGS "${EXISTING_FLAGS} -fsanitize=address")
-else()
-  set(CMAKE_C_FLAGS "${EXISTING_FLAGS}")
+  string(APPEND CMAKE_C_FLAGS_DEBUG " -fsanitize=address")
+  string(APPEND CMAKE_C_FLAGS_RELEASE " -fsanitize=address")
 endif()
 
 # Set the template VOL connector name
-set(TVC_NAME parallax_vol_connector)
+set(PARH5_VOL_LIB parallax_vol_connector)
 
-# Build the template VOL
+set(PARH5_VOL_C_SOURCE_FILES
+    parallax_vol_connector.c parallax_vol_file.c parallax_vol_group.c
+    parallax_vol_object.c parallax_vol_introspect.c parallax_vol_dataset.c)
+
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+  set_source_files_properties(PARH5_VOL_C_SOURCE_FILES
+                              PROPERTIES COMPILE_FLAGS "${CMAKE_C_FLAGS_DEBUG}")
+else()
+  set_source_files_properties(
+    PARH5_VOL_C_SOURCE_FILES PROPERTIES COMPILE_FLAGS
+                                        "${CMAKE_C_FLAGS_RELEASE}")
+endif()
+
+# Build the Parallax VOL plugin
 add_library(
-  ${TVC_NAME} SHARED
+  ${PARH5_VOL_LIB} SHARED
   parallax_vol_connector.c parallax_vol_file.c parallax_vol_group.c
   parallax_vol_object.c parallax_vol_introspect.c parallax_vol_dataset.c)
 
-target_link_libraries(${TVC_NAME} log parallax)
+target_link_libraries(${PARH5_VOL_LIB} log parallax)
 if(USE_ADDR_SANITIZER)
-  target_link_libraries(${TVC_NAME} log parallax asan)
+  target_link_libraries(${PARH5_VOL_LIB} log parallax asan)
 else()
-  target_link_libraries(${TVC_NAME} log parallax)
+  target_link_libraries(${PARH5_VOL_LIB} log parallax)
 endif()
 
 target_compile_options(
-  ${TVC_NAME}
+  ${PARH5_VOL_LIB}
   PRIVATE -Wstrict-prototypes
           -Wall
           -Wextra
@@ -37,6 +49,7 @@ target_compile_options(
           -Wmisleading-indentation
           -pipe)
 
-set_target_properties(${TVC_NAME} PROPERTIES VERSION ${PROJECT_VERSION})
-set_target_properties(${TVC_NAME} PROPERTIES SOVERSION 1)
-set_target_properties(${TVC_NAME} PROPERTIES PUBLIC_HEADER "${TVC_NAME}.h")
+set_target_properties(${PARH5_VOL_LIB} PROPERTIES VERSION ${PROJECT_VERSION})
+set_target_properties(${PARH5_VOL_LIB} PROPERTIES SOVERSION 1)
+set_target_properties(${PARH5_VOL_LIB} PROPERTIES PUBLIC_HEADER
+                                                  "${PARH5_VOL_LIB}.h")
