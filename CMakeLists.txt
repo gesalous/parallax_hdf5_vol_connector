@@ -36,6 +36,7 @@ message(STATUS "Release flags are '${CMAKE_C_FLAGS_RELEASE}'")
 message(STATUS "DEBUG flags are '${CMAKE_C_FLAGS_DEBUG}'")
 message(STATUSLIB_TEST_ "CMAKE install libdir is '${CMAKE_INSTALL_LIBDIR}'")
 
+set_property(GLOBAL PROPERTY USE_ADDR_SANITIZER OFF)
 # Enable testing enable_testing () include (CTest)
 
 # Find HDF5
