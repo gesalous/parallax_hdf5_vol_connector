@@ -1,5 +1,6 @@
 #include "parallax_vol_file.h"
 #include "H5VLconnector.h"
+#include "H5public.h"
 #include "parallax_vol_connector.h"
 #include "uthash.h"
 #include <H5Fpublic.h>
@@ -87,7 +88,24 @@ void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_
 	(void)fapl_id;
 	(void)dxpl_id;
 	(void)req;
-	log_debug("creating new file: %s flags %s", name, parh5F_flags2s(flags));
+	char *yes = "YES";
+	char *no = "NO";
+	hbool_t want_posix_fd = false;
+	hbool_t use_file_locking = false;
+	hbool_t ignore_disabled_file_locks = false;
+	if (H5Pget(fapl_id, PARH5_WANT_POSIX_FD, &want_posix_fd) < 0)
+		log_warn("property %s not found", PARH5_WANT_POSIX_FD);
+
+	if (H5Pget(fapl_id, PARH5_USE_FILE_LOCKING, &use_file_locking) < 0)
+		log_warn("property %s not found", PARH5_USE_FILE_LOCKING);
+
+	if (H5Pget(fapl_id, PARH5_IGNORE_DISABLED_FILE_LOCKS, &ignore_disabled_file_locks) < 0)
+		log_warn("property %s not found", PARH5_USE_FILE_LOCKING);
+
+	log_debug(
+		"creating new file: %s flags %s Does it want a POSIX FD?: %s Does it want to use file locking? %s Does it want to ignore disabled file locks? %s",
+		name, parh5F_flags2s(flags), want_posix_fd ? yes : no, use_file_locking ? yes : no,
+		ignore_disabled_file_locks ? yes : no);
 	return parh5F_new_file(name);
 }
 
@@ -128,6 +146,7 @@ static void parh5F_handle_file_flush(parh5F_file_t file, H5VL_file_specific_args
 		_exit(EXIT_FAILURE);
 	}
 }
+
 herr_t parh5F_specific(void *obj, H5VL_file_specific_args_t *file_query, hid_t dxpl_id, void **req)
 {
 	(void)dxpl_id;

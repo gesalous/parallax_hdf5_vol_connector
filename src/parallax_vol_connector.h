@@ -27,6 +27,11 @@
 
 #define PARH5_SUCCESS 1
 #define PARH5_FAILURE -1
+
+#define PARH5_WANT_POSIX_FD "want_posix_fd"
+#define PARH5_USE_FILE_LOCKING "use_file_locking"
+#define PARH5_IGNORE_DISABLED_FILE_LOCKS "ignore_disabled_file_locks"
+
 typedef enum { PAR_H5_FILE = 1, PAR_H5_GROUP = 2, PAR_H5_DATASET = 3 } parh5_object_e;
 
 herr_t parh5_property_list_iterator(hid_t prop_id, const char *name, void *iter_data);
