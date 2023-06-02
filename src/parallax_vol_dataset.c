@@ -93,7 +93,7 @@ static bool parh5D_get_coordinates(int elem_id, int ndims, hsize_t shape[], hsiz
  * @param [in] ndims number of dimensions
  * @return >=0 in case of SUCCESS otherwise -1 on failure
  */
-static inline int parh5D_get_id_from_coords(hsize_t coords[], hsize_t shape[], int ndims)
+static inline hsize_t parh5D_get_id_from_coords(hsize_t coords[], hsize_t shape[], int ndims)
 {
 	if (0 == ndims)
 		return -1;
@@ -293,7 +293,7 @@ static void parh5D_free_tile_buffer(struct parh5D_tile *tile)
  * @param [in] wcursor pointer to the cursor object
  * @return true on success false if end of the array has reached
  */
-static bool parh5D_advance_tile_wcursor(struct parh5D_tile_cursor *cursor)
+static bool parh5D_advance_tile_cursor(struct parh5D_tile_cursor *cursor)
 {
 	if (cursor->mem_elem_id >= cursor->nelems) {
 		log_debug("End of cursor");
@@ -307,8 +307,9 @@ static bool parh5D_advance_tile_wcursor(struct parh5D_tile_cursor *cursor)
 		_exit(EXIT_FAILURE);
 	}
 	uint32_t storage_elem_id = parh5D_get_id_from_coords(coords, cursor->shape, cursor->ndims);
+	uint64_t uuid = cursor->tile.uuid;
 	cursor->tile.uuid = parh5D_create_tile_uuid(cursor->dataset->uuid, storage_elem_id);
-
+	assert(uuid != cursor->tile.uuid);
 	parh5D_free_tile_buffer(&cursor->tile);
 
 	cursor->tile.tile_buffer = (char *)cursor->mem_buf + cursor->mem_elem_id * H5Tget_size(cursor->memtype);
@@ -334,6 +335,7 @@ static bool parh5D_advance_tile_wcursor(struct parh5D_tile_cursor *cursor)
 	parh5D_fetch_tile(cursor, cursor->tile.uuid, cursor->tile.tile_buffer, cursor->tile.size_in_bytes);
 	memcpy(cursor->tile.tile_buffer, (char *)cursor->mem_buf + cursor->mem_elem_id * H5Tget_size(cursor->memtype),
 	       remaining_in_mem_buffer * H5Tget_size(cursor->memtype));
+	cursor->mem_elem_id += remaining_in_mem_buffer;
 	return true;
 }
 
@@ -352,7 +354,7 @@ static uint64_t parh5D_create_uuid(parh5D_dataset_t dataset, const char *name)
 {
 	const char *group_name = parh5G_get_group_name(dataset->group);
 #define PARH5D_UUID_BUFFER_SIZE 128
-	uint32_t needed_space = strlen(group_name) + strlen(name) + 1UL;
+	uint32_t needed_space = strlen(group_name) + strlen(name) + 2UL;
 	dataset->name = calloc(1UL, needed_space);
 	memcpy(dataset->name, group_name, strlen(group_name));
 	memcpy(&dataset->name[strlen(group_name)], ":", 1UL);
@@ -456,12 +458,12 @@ static void parh5D_deserialize_dataset(parh5D_dataset_t dataset, char *buffer, s
 	memcpy(&dataset->uuid, &buffer[idx], sizeof(dataset->uuid));
 	idx += sizeof(dataset->uuid);
 	//get the space id
+	size_t size = 0;
 	dataset->space_id = H5Sdecode(&buffer[idx]);
 	if (dataset->space_id <= 0) {
 		log_fatal("Failed to deserialize the space id of the dataset");
 		_exit(EXIT_FAILURE);
 	}
-	size_t size = 0;
 	H5Sencode2(dataset->space_id, NULL, &size, 0);
 	idx += size;
 	//Get the type id
@@ -494,6 +496,7 @@ static bool parh5G_store_dataset(parh5D_dataset_t dataset, const char **error_me
 	}
 	/*Unroll dataset*/
 	char *value = par_value.val_buffer;
+	log_debug("*** Value is %.*s", par_value.val_size, par_value.val_buffer);
 	char *result = strstr(par_value.val_buffer, dataset->name);
 
 	if (result != NULL) {
@@ -649,7 +652,7 @@ herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_sp
 
 	struct parh5D_tile_cursor *cursor =
 		parh5D_create_tile_cursor(dataset, buf[0], mem_type_id[0], real_file_space_id, PARH5D_READ_CURSOR);
-	for (bool ret = true; cursor != NULL && ret; ret = parh5D_advance_tile_wcursor(cursor))
+	for (bool ret = true; cursor != NULL && ret; ret = parh5D_advance_tile_cursor(cursor))
 		;
 	parh5D_close_cursor(cursor);
 	return PARH5_SUCCESS;
@@ -808,11 +811,10 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 
 	struct parh5D_tile_cursor *cursor = parh5D_create_tile_cursor(dataset, (void *)buf[0], mem_type_id[0],
 								      real_file_space_id, PARH5D_WRITE_CURSOR);
-	for (bool ret = true; cursor != NULL && ret; ret = parh5D_advance_tile_wcursor(cursor)) {
-		log_debug("Writing tile uuid: %lu....", cursor->tile.uuid);
+	for (bool ret = true; cursor != NULL && ret; ret = parh5D_advance_tile_cursor(cursor)) {
+		// log_debug("Writing tile uuid: %lu....", cursor->tile.uuid);
 		parh5D_write_tile(cursor->dataset, cursor->tile.uuid, cursor->tile.tile_buffer,
 				  cursor->tile.size_in_bytes);
-		// log_debug("Writing tile uuid: %lu SUCCESS", cursor->tile.uuid);
 	}
 	parh5D_close_cursor(cursor);
 	return PARH5_SUCCESS;
@@ -874,19 +876,22 @@ herr_t parh5D_optional(void *obj, H5VL_optional_args_t *args, hid_t dxpl_id, voi
 
 herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 {
-	(void)dset;
 	(void)dxpl_id;
 	(void)req;
+
 	parh5_object_e *obj_type = (parh5_object_e *)dset;
 	if (PAR_H5_DATASET != *obj_type) {
 		log_fatal("Dataset write can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}
+
 	parh5D_dataset_t dataset = dset;
-	H5Sclose(dataset->space_id);
-	H5Pclose(dataset->dcpl_id);
-	H5Tclose(dataset->type_id);
+	//Don't worry about space, type, and dcpl. HDF5 knows about their existence
+	//since it has asked the plugin during open and cleans them up itself
+	log_debug("Closing dataset %s SUCCESS", dataset->name);
 	free(dataset->name);
+	dataset->name = NULL;
 	free(dataset);
+
 	return PARH5_SUCCESS;
 }

@@ -104,14 +104,15 @@ static bool parh5G_save_group(parh5G_group_t group)
 	char *value = value_buffer;
 	/*we keep in parallax in the value field group_name and file name*/
 	if (strlen(group->group_name) + strlen(parh5F_get_file_name(group->file)) + 2 > PARH5G_VALUE_BUFFER_SIZE)
-		value = calloc(1UL, strlen(group->group_name) + strlen(parh5F_get_file_name(group->file)) + 1);
+		value = calloc(1UL, strlen(group->group_name) + strlen(parh5F_get_file_name(group->file)) + 2UL);
 
 	int idx = strlen(group->group_name);
 	memcpy(&value[0], group->group_name, idx);
-	memcpy(&value[idx], " ", strlen(" "));
-	idx += strlen(" ");
+	memcpy(&value[idx], ":", strlen(":"));
+	idx += strlen(":");
 	memcpy(&value[idx], parh5F_get_file_name(group->file), strlen(parh5F_get_file_name(group->file)));
 	idx += strlen(parh5F_get_file_name(group->file));
+	idx++;
 	struct par_key par_key = { .size = sizeof(group->uuid), .data = (char *)&group->uuid };
 	struct par_value par_value = { .val_size = idx, .val_buffer = value };
 	const char *error_message = NULL;
