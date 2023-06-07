@@ -9,8 +9,13 @@ endif()
 set(PARH5_VOL_LIB parallax_vol_connector)
 
 set(PARH5_VOL_C_SOURCE_FILES
-    parallax_vol_connector.c parallax_vol_file.c parallax_vol_group.c
-    parallax_vol_object.c parallax_vol_introspect.c parallax_vol_dataset.c)
+    parallax_vol_connector.c
+    parallax_vol_file.c
+    parallax_vol_group.c
+    parallax_vol_object.c
+    parallax_vol_introspect.c
+    parallax_vol_dataset.c
+    parallax_vol_inode.c)
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   set_source_files_properties(PARH5_VOL_C_SOURCE_FILES

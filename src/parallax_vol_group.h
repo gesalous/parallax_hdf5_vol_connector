@@ -1,7 +1,10 @@
 #ifndef PARALLAX_VOL_GROUP_H
 #define PARALLAX_VOL_GROUP_H
+#include "parallax_vol_inode.h"
 #include <H5VLconnector.h>
 #include <parallax/parallax.h>
+
+typedef struct parh5F_file *parh5F_file_t;
 /*VOL specific plugin staff*/
 void *parh5G_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t gcpl_id,
 		    hid_t gapl_id, hid_t dxpl_id, void **req);
@@ -28,8 +31,18 @@ bool parh5G_add_dataset(parh5G_group_t group, const char *dataset_name, const ch
   * @param group reference to the group
   * @return on success a non NULL string with the group's name
 */
-const char *parh5G_get_group_name(parh5G_group_t group);
+// const char *parh5G_get_group_name(parh5G_group_t group);
 
-uint64_t parh5G_get_group_uuid(parh5G_group_t group);
+// uint64_t parh5G_get_group_uuid(parh5G_group_t group);
 par_handle parh5G_get_parallax_db(parh5G_group_t group);
+
+/**
+ * @brief Creates a new group that belongs to the file. The group is unlinked and it is
+ * not saved in Parallax.
+ * @param [in] file reference to the file object
+ * @param [in] name the name of the file
+ */
+parh5G_group_t parh5G_new_group(parh5F_file_t file, const char *name);
+
+parh5I_inode_t parh5G_get_inode(parh5G_group_t group);
 #endif

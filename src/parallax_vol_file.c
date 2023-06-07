@@ -2,6 +2,7 @@
 #include "H5VLconnector.h"
 #include "H5public.h"
 #include "parallax_vol_connector.h"
+#include "parallax_vol_group.h"
 #include "uthash.h"
 #include <H5Fpublic.h>
 #include <H5Ppublic.h>
@@ -14,12 +15,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+typedef struct parh5G_group *parh5G_group_t;
 
 struct parh5F_file {
 	parh5_object_e obj_type;
 	const char *name;
+	parh5G_group_t root_group;
 	par_handle db;
 };
+
+parh5G_group_t parh5F_get_root_group(parh5F_file_t file)
+{
+	return file ? file->root_group : NULL;
+}
 
 static void parh5F_print_pl(hid_t fapl_id)
 {
@@ -55,7 +63,12 @@ static parh5F_file_t parh5F_new_file(const char *file_name)
 		_exit(EXIT_FAILURE);
 	}
 	file->name = strdup(file_name);
-	file->obj_type = PAR_H5_FILE;
+	file->obj_type = PARH5_FILE;
+
+	parh5G_group_t root_group = parh5G_new_group(file, "");
+	//save inode to parallax
+	parh5I_store_inode(parh5G_get_inode(root_group), file->db);
+	log_debug("Created and stored root group for file: %s", file_name);
 	return file;
 }
 
@@ -82,7 +95,6 @@ static const char *parh5F_flags2s(unsigned flags)
 
 void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_id, hid_t dxpl_id, void **req)
 {
-	(void)name;
 	(void)flags;
 	(void)fcpl_id;
 	(void)fapl_id;
@@ -152,7 +164,7 @@ herr_t parh5F_specific(void *obj, H5VL_file_specific_args_t *file_query, hid_t d
 	(void)dxpl_id;
 	(void)req;
 	parh5_object_e *obj_type = obj;
-	if (obj && *obj_type != PAR_H5_FILE) {
+	if (obj && *obj_type != PARH5_FILE) {
 		log_fatal("Object is not a file!");
 		_exit(EXIT_FAILURE);
 	}

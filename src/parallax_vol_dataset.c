@@ -5,7 +5,9 @@
 #include "H5public.h"
 #include "djb2.h"
 #include "parallax_vol_connector.h"
+#include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
+#include "parallax_vol_inode.h"
 #include <H5Spublic.h>
 #include <assert.h>
 #include <log.h>
@@ -50,10 +52,8 @@ struct parh5D_tile_cursor {
 };
 
 struct parh5D_dataset {
-	parh5_object_e obj_type;
+	parh5I_inode_t inode;
 	parh5G_group_t group; /*Where does this dataset belongs*/
-	char *name;
-	uint64_t uuid;
 	hid_t space_id; /*info about the space*/
 	hid_t type_id; /*info about its schema*/
 	hid_t dcpl_id; /*dataset creation property list*/
@@ -234,7 +234,7 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 		actual_tile_size = PARH5D_TILE_SIZE_IN_ELEMS - (storage_elem_id % PARH5D_TILE_SIZE_IN_ELEMS);
 	}
 
-	cursor->tile.uuid = parh5D_create_tile_uuid(dataset->uuid, storage_tile_id);
+	cursor->tile.uuid = parh5D_create_tile_uuid(parh5I_get_inode_num(dataset->inode), storage_tile_id);
 	cursor->tile.tile_buffer = mem;
 	cursor->tile.size_in_bytes = H5Tget_size(cursor->memtype) * PARH5D_TILE_SIZE_IN_ELEMS;
 	cursor->mem_elem_id = PARH5D_TILE_SIZE_IN_ELEMS;
@@ -308,7 +308,7 @@ static bool parh5D_advance_tile_cursor(struct parh5D_tile_cursor *cursor)
 	}
 	uint32_t storage_elem_id = parh5D_get_id_from_coords(coords, cursor->shape, cursor->ndims);
 	uint64_t uuid = cursor->tile.uuid;
-	cursor->tile.uuid = parh5D_create_tile_uuid(cursor->dataset->uuid, storage_elem_id);
+	cursor->tile.uuid = parh5D_create_tile_uuid(parh5I_get_inode_num(cursor->dataset->inode), storage_elem_id);
 	assert(uuid != cursor->tile.uuid);
 	parh5D_free_tile_buffer(&cursor->tile);
 
@@ -344,97 +344,57 @@ static void parh5D_close_cursor(struct parh5D_tile_cursor *cursor)
 	parh5D_free_tile_buffer(&cursor->tile);
 	free(cursor);
 }
-/**
- * @brief Given a dataset name creates a unique uuid
- * @param [in] dataset pointer to the dataset object
- * @param [in] name C string contains name of the dataset
- * @return the uuid of the dataset
- */
-static uint64_t parh5D_create_uuid(parh5D_dataset_t dataset, const char *name)
-{
-	const char *group_name = parh5G_get_group_name(dataset->group);
-#define PARH5D_UUID_BUFFER_SIZE 128
-	uint32_t needed_space = strlen(group_name) + strlen(name) + 2UL;
-	dataset->name = calloc(1UL, needed_space);
-	memcpy(dataset->name, group_name, strlen(group_name));
-	memcpy(&dataset->name[strlen(group_name)], ":", 1UL);
-	memcpy(&dataset->name[strlen(group_name) + 1UL], name, strlen(name));
-	uint64_t uuid_hash = djb2_hash((unsigned char *)dataset->name, strlen(dataset->name));
-	log_debug("uuid = %s hash is %lu", dataset->name, uuid_hash);
-	return uuid_hash;
-}
 
-#define PAR5HD_BUFFER_CHECK_REMAINING(X, Y) \
-	if (X < Y) {                        \
-		free(buffer);               \
-		buffer_size *= 2;           \
-		continue;                   \
+#define PAR5HD_BUFFER_CHECK_REMAINING(X, Y)                           \
+	if (X < Y) {                                                  \
+		log_fatal("Sorry need to resize inode XXX TODO XXX"); \
+		_exit(EXIT_FAILURE);                                  \
 	}
 
-#define PAR5HD_BUFFER_SIZE 256
-static char *parh5D_serialize_dataset(struct parh5D_dataset *dset, size_t *buf_size)
+static bool parh5D_store_dataset(parh5D_dataset_t dset)
 {
-	size_t buffer_size = PAR5HD_BUFFER_SIZE;
-	size_t remaining_bytes = PAR5HD_BUFFER_SIZE;
 	size_t idx = 0;
-	char *buffer = NULL;
-	while (1) {
-		idx = 0;
-		buffer = calloc(1UL, buffer_size);
-		remaining_bytes = buffer_size;
-		size_t name_size = strlen(dset->name) + 1;
-		size_t space_needed = sizeof(name_size) + name_size;
-		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
-		//Dataset's name string size
-		memcpy(&buffer[idx], &name_size, sizeof(name_size));
-		idx += sizeof(name_size);
-		//Dataset's actual name
-		memcpy(&buffer[idx], dset->name, name_size);
-		idx += name_size;
-		remaining_bytes -= space_needed;
-		//Dataset's uuid
-		space_needed = sizeof(dset->uuid);
-		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
-		memcpy(&buffer[idx], &dset->uuid, space_needed);
-		idx += space_needed;
-		remaining_bytes -= space_needed;
-		//Dataset's space_id
-		H5Sencode2(dset->space_id, NULL, &space_needed, 0);
-		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
+	uint32_t buffer_size = 0;
+	char *buffer = parh5I_get_inode_buf(dset->inode, &buffer_size);
+	size_t remaining_bytes = buffer_size;
+	idx = 0;
+	//Dataset's space_id
+	size_t space_needed = 0;
+	H5Sencode2(dset->space_id, NULL, &space_needed, 0);
+	PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
 
-		if (H5Sencode2(dset->space_id, &buffer[idx], &space_needed, 0) < 0) {
-			log_fatal("Failed tp encode");
-			_exit(EXIT_FAILURE);
-		}
-		idx += space_needed;
-		remaining_bytes -= space_needed;
-		//Dataset's type_id
-		H5Tencode(dset->type_id, NULL, &space_needed);
-		if (0 == space_needed) {
-			log_fatal("Failed to get the size of the type");
-			_exit(EXIT_FAILURE);
-		}
-		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
-
-		if (H5Tencode(dset->type_id, &buffer[idx], &space_needed) < 0) {
-			log_fatal("Failed to serialize dataset type buffer");
-			_exit(EXIT_FAILURE);
-		}
-		idx += space_needed;
-		remaining_bytes -= space_needed;
-		//Now the dataset creation property list
-		H5Pencode1(dset->dcpl_id, NULL, &space_needed);
-		log_debug("Space need for pl is %lu", space_needed);
-		PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
-		if (H5Pencode1(dset->dcpl_id, &buffer[idx], &space_needed) < 0) {
-			log_fatal("Failed to serialize dataset creation propery list");
-			_exit(EXIT_FAILURE);
-		}
-		idx += space_needed;
-		remaining_bytes -= space_needed;
-		*buf_size = buffer_size - remaining_bytes;
-		return buffer;
+	if (H5Sencode2(dset->space_id, &buffer[idx], &space_needed, 0) < 0) {
+		log_fatal("Failed tp encode");
+		_exit(EXIT_FAILURE);
 	}
+	idx += space_needed;
+	remaining_bytes -= space_needed;
+	//Dataset's type_id
+	H5Tencode(dset->type_id, NULL, &space_needed);
+	if (0 == space_needed) {
+		log_fatal("Failed to get the size of the type");
+		_exit(EXIT_FAILURE);
+	}
+	PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
+
+	if (H5Tencode(dset->type_id, &buffer[idx], &space_needed) < 0) {
+		log_fatal("Failed to serialize dataset type buffer");
+		_exit(EXIT_FAILURE);
+	}
+	idx += space_needed;
+	remaining_bytes -= space_needed;
+	//Now the dataset creation property list
+	H5Pencode1(dset->dcpl_id, NULL, &space_needed);
+	log_debug("Space need for pl is %lu", space_needed);
+	PAR5HD_BUFFER_CHECK_REMAINING(remaining_bytes, space_needed);
+	if (H5Pencode1(dset->dcpl_id, &buffer[idx], &space_needed) < 0) {
+		log_fatal("Failed to serialize dataset creation propery list");
+		_exit(EXIT_FAILURE);
+	}
+	idx += space_needed;
+	remaining_bytes -= space_needed;
+	parh5I_store_inode(dset->inode, parh5F_get_parallax_db(parh5G_get_parallax_db(dset->group)));
+	return true;
 }
 
 /**
@@ -443,27 +403,18 @@ static char *parh5D_serialize_dataset(struct parh5D_dataset *dset, size_t *buf_s
  * @param [in] buffer pointer to the buffer which contains the serialized data
  * @param [in] buffer_size the size of the buffer
  */
-static void parh5D_deserialize_dataset(parh5D_dataset_t dataset, char *buffer, size_t buffer_size)
+static void parh5D_deserialize_dataset(parh5D_dataset_t dataset)
 {
-	(void)buffer_size;
-	size_t idx = 0;
-	size_t name_size = 0;
-	//get the name
-	memcpy(&name_size, &buffer[idx], sizeof(name_size));
-	idx += sizeof(name_size);
-	dataset->name = calloc(1UL, name_size);
-	memcpy(dataset->name, &buffer[idx], name_size);
-	idx += name_size;
-	//get the dataset uuid
-	memcpy(&dataset->uuid, &buffer[idx], sizeof(dataset->uuid));
-	idx += sizeof(dataset->uuid);
+	uint32_t inode_size = 0;
+	char *buffer = parh5I_get_inode_buf(dataset->inode, &inode_size);
+	uint32_t idx = 0;
 	//get the space id
-	size_t size = 0;
 	dataset->space_id = H5Sdecode(&buffer[idx]);
 	if (dataset->space_id <= 0) {
 		log_fatal("Failed to deserialize the space id of the dataset");
 		_exit(EXIT_FAILURE);
 	}
+	size_t size = 0;
 	H5Sencode2(dataset->space_id, NULL, &size, 0);
 	idx += size;
 	//Get the type id
@@ -478,47 +429,14 @@ static void parh5D_deserialize_dataset(parh5D_dataset_t dataset, char *buffer, s
 	dataset->dcpl_id = H5Pdecode(&buffer[idx]);
 }
 
-static bool parh5G_store_dataset(parh5D_dataset_t dataset, const char **error_message)
+static parh5D_dataset_t parh5D_read_dataset(parh5G_group_t group, uint64_t inode_num)
 {
-	uint64_t group_uuid = parh5G_get_group_uuid(dataset->group);
-	if (!group_uuid) {
-		log_fatal("Group uuid not set!");
-		assert(0);
-		_exit(EXIT_FAILURE);
-	}
-	struct par_key group_key = { .size = sizeof(group_uuid), .data = (char *)&group_uuid };
-	struct par_value par_value = { 0 };
-	const char *error = NULL;
-	par_get(parh5G_get_parallax_db(dataset->group), &group_key, &par_value, &error);
-	if (error) {
-		log_debug("Could not find key: %.*s reason: %s", group_key.size, group_key.data, error);
-		return false;
-	}
-	/*Unroll dataset*/
-	char *value = par_value.val_buffer;
-	log_debug("*** Value is %.*s", par_value.val_size, par_value.val_buffer);
-	char *result = strstr(par_value.val_buffer, dataset->name);
-
-	if (result != NULL) {
-		log_debug("Dataset already exists %s\n", dataset->name);
-		*error_message = "Dataset exists";
-		return false;
-	}
-	size_t buffer_size = 0;
-	char *buffer = parh5D_serialize_dataset(dataset, &buffer_size);
-	struct par_key dataset_key = { .size = sizeof(dataset->uuid), .data = (char *)&dataset->uuid };
-	struct par_value new_par_value = { .val_buffer_size = buffer_size,
-					   .val_size = buffer_size,
-					   .val_buffer = buffer };
-	struct par_key_value KV = { .k = dataset_key, .v = new_par_value };
-	par_put(parh5G_get_parallax_db(dataset->group), &KV, &error);
-
-	if (error) {
-		log_fatal("Failed to add dataset %s", dataset->name);
-		_exit(EXIT_FAILURE);
-	}
-	free(value);
-	return true;
+	parh5I_inode_t inode = parh5I_get_inode(parh5G_get_parallax_db(group), inode_num);
+	parh5D_dataset_t dataset = calloc(1UL, sizeof(*dataset));
+	dataset->group = group;
+	dataset->inode = inode;
+	parh5D_deserialize_dataset(dataset);
+	return dataset;
 }
 
 void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t type_id,
@@ -534,23 +452,29 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	(void)dxpl_id;
 	parh5_object_e *obj_type = (parh5_object_e *)obj;
 
-	if (PAR_H5_GROUP != *obj_type) {
-		log_fatal("Dataset can only be associated with a group object");
+	parh5G_group_t parent_group = NULL;
+
+	if (PARH5_GROUP == *obj_type)
+		parent_group = (parh5G_group_t)obj;
+	else if (PARH5_FILE == *obj_type) {
+		parh5F_file_t file = (parh5F_file_t)obj;
+		parent_group = parh5F_get_root_group(file);
+	} else {
+		log_fatal("Dataset can only be associated with a group/file object");
 		_exit(EXIT_FAILURE);
 	}
-	parh5G_group_t group = obj;
 
 	parh5D_dataset_t dataset = calloc(1UL, sizeof(struct parh5D_dataset));
-	dataset->obj_type = PAR_H5_DATASET;
+	dataset->inode = parh5I_create_inode(name, PARH5_DATASET, parh5G_get_inode(parent_group),
+					     parh5G_get_parallax_db(parent_group));
+	log_debug("Creating dataspace in parent group %s", parh5I_get_inode_name(parh5G_get_inode(parent_group)));
 	dataset->type_id = H5Tcopy(type_id);
 	dataset->dcpl_id = H5Pcopy(dcpl_id);
-	log_debug("Creating dataspace for group uuid: %lu", parh5G_get_group_uuid(group));
-	dataset->group = group;
+	dataset->group = parent_group;
 	dataset->space_id = H5Scopy(space_id);
-	dataset->uuid = parh5D_create_uuid(dataset, name);
+	parh5D_store_dataset(dataset);
+
 	log_debug("Dimensions of new dataspace are %d", H5Sget_simple_extent_ndims(dataset->space_id));
-	const char *error_message = NULL;
-	parh5G_store_dataset(dataset, &error_message);
 
 	return dataset;
 }
@@ -564,30 +488,26 @@ void *parh5D_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 	(void)req;
 	parh5_object_e *obj_type = (parh5_object_e *)obj;
 
-	if (PAR_H5_GROUP != *obj_type) {
-		log_fatal("Dataset can only be associated with a group object");
+	parh5G_group_t parent_group = NULL;
+
+	if (PARH5_GROUP == *obj_type)
+		parent_group = (parh5G_group_t)obj;
+	else if (PARH5_FILE == *obj_type) {
+		parh5F_file_t file = (parh5F_file_t)obj;
+		parent_group = parh5F_get_root_group(file);
+	} else {
+		log_fatal("Dataset can only be associated with a group/file object");
 		_exit(EXIT_FAILURE);
 	}
-	parh5G_group_t group = obj;
-	parh5D_dataset_t dataset = calloc(1UL, sizeof(struct parh5D_dataset));
-	dataset->obj_type = PAR_H5_DATASET;
-	dataset->group = group;
-	dataset->uuid = parh5D_create_uuid(dataset, name);
-	struct par_key par_key = { .size = sizeof(dataset->uuid), .data = (char *)&dataset->uuid };
-	struct par_value par_value = { 0 };
-	const char *error = NULL;
-	par_get(parh5G_get_parallax_db(dataset->group), &par_key, &par_value, &error);
-	if (error) {
-		log_debug("Dataset with uuid: %lu does not exist reason: %s", dataset->uuid, error);
-		free(dataset);
+	/*search*/
+	uint64_t inode_num = parh5I_bsearch_inode(parh5G_get_inode(parent_group), name);
+	if (0 == inode_num) {
+		log_debug("Dataset: %s does not exist", name);
 		return NULL;
 	}
 
-	log_debug("Found dataset with name: %s and uuid: %lu of size: %u proceeding to deserialize it...", name,
-		  dataset->uuid, par_value.val_size);
-	parh5D_deserialize_dataset(dataset, par_value.val_buffer, par_value.val_size);
-	free(par_value.val_buffer);
-	log_debug("Deserialization success of %s", name);
+	parh5D_dataset_t dataset = parh5D_read_dataset(parent_group, inode_num);
+	assert(dataset);
 	return dataset;
 }
 
@@ -607,7 +527,7 @@ herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_sp
 	}
 
 	parh5_object_e *obj_type = (parh5_object_e *)dset[0];
-	if (PAR_H5_DATASET != *obj_type) {
+	if (PARH5_DATASET != *obj_type) {
 		log_fatal("Dataset write can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}
@@ -747,7 +667,7 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 	}
 
 	parh5_object_e *obj_type = (parh5_object_e *)dset[0];
-	if (PAR_H5_DATASET != *obj_type) {
+	if (PARH5_DATASET != *obj_type) {
 		log_fatal("Dataset write can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}
@@ -775,7 +695,8 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 	/* Get number of elements in selections */
 	hssize_t num_elem_file = -1;
 	if ((num_elem_file = H5Sget_select_npoints(real_file_space_id)) < 0) {
-		log_fatal("can't get number of points in file selection for dataset: %s", dataset->name);
+		log_fatal("can't get number of points in file selection for dataset: %s",
+			  parh5I_get_inode_name(dataset->inode));
 		_exit(EXIT_FAILURE);
 	}
 
@@ -825,7 +746,7 @@ herr_t parh5D_get(void *obj, H5VL_dataset_get_args_t *get_op, hid_t dxpl_id, voi
 	(void)dxpl_id;
 	(void)req;
 	parh5_object_e *obj_type = (parh5_object_e *)obj;
-	if (PAR_H5_DATASET != *obj_type) {
+	if (PARH5_DATASET != *obj_type) {
 		log_fatal("Object is not a dataset!");
 		_exit(EXIT_FAILURE);
 	}
@@ -833,7 +754,7 @@ herr_t parh5D_get(void *obj, H5VL_dataset_get_args_t *get_op, hid_t dxpl_id, voi
 
 	switch (get_op->op_type) {
 	case H5VL_DATASET_GET_SPACE:
-		log_debug("HDF5 wants to know about space of dataset: %s", dataset->name);
+		log_debug("HDF5 wants to know about space of dataset: %s", parh5I_get_inode_name(dataset->inode));
 		get_op->args.get_space.space_id = dataset->space_id;
 		break;
 	case H5VL_DATASET_GET_TYPE:
@@ -880,7 +801,7 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 	(void)req;
 
 	parh5_object_e *obj_type = (parh5_object_e *)dset;
-	if (PAR_H5_DATASET != *obj_type) {
+	if (PARH5_DATASET != *obj_type) {
 		log_fatal("Dataset write can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}
@@ -888,9 +809,8 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 	parh5D_dataset_t dataset = dset;
 	//Don't worry about space, type, and dcpl. HDF5 knows about their existence
 	//since it has asked the plugin during open and cleans them up itself
-	log_debug("Closing dataset %s SUCCESS", dataset->name);
-	free(dataset->name);
-	dataset->name = NULL;
+	log_debug("Closing dataset %s SUCCESS", parh5I_get_inode_name(dataset->inode));
+	free(dataset->inode);
 	free(dataset);
 
 	return PARH5_SUCCESS;
