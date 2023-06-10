@@ -1,8 +1,10 @@
 #include "parallax_vol_file.h"
 #include "H5VLconnector.h"
 #include "H5public.h"
+#include "parallax/structures.h"
 #include "parallax_vol_connector.h"
 #include "parallax_vol_group.h"
+#include "parallax_vol_inode.h"
 #include "uthash.h"
 #include <H5Fpublic.h>
 #include <H5Ppublic.h>
@@ -44,10 +46,10 @@ inline par_handle parh5F_get_parallax_db(parh5F_file_t file)
 	return file ? file->db : NULL;
 }
 
-static parh5F_file_t parh5F_new_file(const char *file_name)
+static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initializers open_flag)
 {
 	par_db_options db_options = { .volume_name = PARALLAX_VOLUME,
-				      .create_flag = PAR_CREATE_DB,
+				      .create_flag = open_flag,
 				      .db_name = file_name,
 				      .options = par_get_default_options() };
 	db_options.options[LEVEL0_SIZE].value = PARALLAX_L0_SIZE;
@@ -57,18 +59,26 @@ static parh5F_file_t parh5F_new_file(const char *file_name)
 	parh5F_file_t file = calloc(1UL, sizeof(struct parh5F_file));
 	const char *error_message = NULL;
 	file->db = par_open(&db_options, &error_message);
+	if (error_message)
+		log_debug("Parallax says: %s", error_message);
 
-	if (error_message) {
+	if (file->db == NULL && error_message) {
 		log_fatal("Error uppon opening the DB, error %s", error_message);
 		_exit(EXIT_FAILURE);
 	}
 	file->name = strdup(file_name);
 	file->obj_type = PARH5_FILE;
 
-	parh5G_group_t root_group = parh5G_new_group(file, "");
-	//save inode to parallax
-	parh5I_store_inode(parh5G_get_inode(root_group), file->db);
-	log_debug("Created and stored root group for file: %s", file_name);
+	/*Check it the root inode exists*/
+	parh5I_inode_t root_inode = parh5I_get_inode(file->db, 1);
+	if (root_inode) {
+		file->root_group = parh5G_open_group(file, root_inode);
+		log_debug("Opened root group for file: %s", file_name);
+		return file;
+	}
+
+	file->root_group = parh5G_create_group(file, "-ROOT-");
+	log_debug("Created root group for file: %s", file_name);
 	return file;
 }
 
@@ -118,7 +128,7 @@ void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_
 		"creating new file: %s flags %s Does it want a POSIX FD?: %s Does it want to use file locking? %s Does it want to ignore disabled file locks? %s",
 		name, parh5F_flags2s(flags), want_posix_fd ? yes : no, use_file_locking ? yes : no,
 		ignore_disabled_file_locks ? yes : no);
-	return parh5F_new_file(name);
+	return parh5F_new_file(name, PAR_CREATE_DB);
 }
 
 void *parh5F_open(const char *name, unsigned flags, hid_t fapl_id, hid_t dxpl_id, void **req)
@@ -130,7 +140,7 @@ void *parh5F_open(const char *name, unsigned flags, hid_t fapl_id, hid_t dxpl_id
 	(void)req;
 
 	log_debug("Opening file name: %s flags %s", name, parh5F_flags2s(flags));
-	return parh5F_new_file(name);
+	return parh5F_new_file(name, PAR_CREATE_DB);
 }
 
 herr_t parh5F_get(void *obj, H5VL_file_get_args_t *args, hid_t dxpl_id, void **req)

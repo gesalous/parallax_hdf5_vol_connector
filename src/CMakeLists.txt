@@ -29,8 +29,13 @@ endif()
 # Build the Parallax VOL plugin
 add_library(
   ${PARH5_VOL_LIB} SHARED
-  parallax_vol_connector.c parallax_vol_file.c parallax_vol_group.c
-  parallax_vol_object.c parallax_vol_introspect.c parallax_vol_dataset.c)
+  parallax_vol_connector.c
+  parallax_vol_file.c
+  parallax_vol_group.c
+  parallax_vol_object.c
+  parallax_vol_introspect.c
+  parallax_vol_dataset.c
+  parallax_vol_inode.c)
 
 target_link_libraries(${PARH5_VOL_LIB} log parallax)
 if(USE_ADDR_SANITIZER)

@@ -64,7 +64,10 @@ int main(void)
 				      H5P_DEFAULT, H5P_DEFAULT);
 	PAR_TEST_CHECK(dataset_id, "measurements")
 	size_t nelems = dims[0] * dims[1];
-	float data[PAR_TEST_DIM1][PAR_TEST_DIM2] = { 1.0f };
+	float data[PAR_TEST_DIM1][PAR_TEST_DIM2];
+	for (int i = 0; i < PAR_TEST_DIM1; i++)
+		for (int j = 0; j < PAR_TEST_DIM2; j++)
+			data[i][j] = 2.0f;
 
 	// Write data to the dataset
 	H5Dwrite(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
@@ -94,9 +97,10 @@ int main(void)
 	// Verify the values in the 'data' array
 	for (int i = 0; i < dims[0]; i++) {
 		for (int j = 0; j < dims[1]; j++) {
-			if (data[i][j] == 1.0)
+			if (data[i][j] == 2.0f)
 				continue;
-			log_fatal("Verification failed: data[%d][%d] is not equal to 1.0\n", i, j);
+			log_fatal("Verification failed: data[%d][%d] is not equal to 2.0 instead it is %f\n", i, j,
+				  data[i][j]);
 			_exit(EXIT_FAILURE);
 		}
 	}

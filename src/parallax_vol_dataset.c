@@ -52,6 +52,7 @@ struct parh5D_tile_cursor {
 };
 
 struct parh5D_dataset {
+	parh5_object_e type;
 	parh5I_inode_t inode;
 	parh5G_group_t group; /*Where does this dataset belongs*/
 	hid_t space_id; /*info about the space*/
@@ -132,6 +133,7 @@ static uint64_t parh5D_create_tile_uuid(uint64_t dset_uuid, uint64_t element_id)
 static bool parh5D_fetch_tile(struct parh5D_tile_cursor *cursor, uint64_t tile_uuid, char tile_buffer[],
 			      size_t tile_size)
 {
+	// log_debug("Fetching tile with uuid: %lu size: %lu", tile_uuid, tile_size);
 	struct par_key par_key = { .size = sizeof(tile_uuid), .data = (char *)&tile_uuid };
 	struct par_value par_value = { .val_buffer = tile_buffer, .val_buffer_size = tile_size };
 	const char *error = NULL;
@@ -393,7 +395,7 @@ static bool parh5D_store_dataset(parh5D_dataset_t dset)
 	}
 	idx += space_needed;
 	remaining_bytes -= space_needed;
-	parh5I_store_inode(dset->inode, parh5F_get_parallax_db(parh5G_get_parallax_db(dset->group)));
+	parh5I_store_inode(dset->inode, parh5G_get_parallax_db(dset->group));
 	return true;
 }
 
@@ -433,6 +435,7 @@ static parh5D_dataset_t parh5D_read_dataset(parh5G_group_t group, uint64_t inode
 {
 	parh5I_inode_t inode = parh5I_get_inode(parh5G_get_parallax_db(group), inode_num);
 	parh5D_dataset_t dataset = calloc(1UL, sizeof(*dataset));
+	dataset->type = PARH5_DATASET;
 	dataset->group = group;
 	dataset->inode = inode;
 	parh5D_deserialize_dataset(dataset);
@@ -465,7 +468,9 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	}
 
 	parh5D_dataset_t dataset = calloc(1UL, sizeof(struct parh5D_dataset));
-	dataset->inode = parh5I_create_inode(name, PARH5_DATASET, parh5G_get_inode(parent_group),
+	dataset->type = PARH5_DATASET;
+
+	dataset->inode = parh5I_create_inode(name, PARH5_DATASET, parh5G_get_root_inode(parent_group),
 					     parh5G_get_parallax_db(parent_group));
 	log_debug("Creating dataspace in parent group %s", parh5I_get_inode_name(parh5G_get_inode(parent_group)));
 	dataset->type_id = H5Tcopy(type_id);
@@ -473,6 +478,8 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	dataset->group = parent_group;
 	dataset->space_id = H5Scopy(space_id);
 	parh5D_store_dataset(dataset);
+	parh5I_add_inode(parh5G_get_inode(parent_group), parh5I_get_inode_num(dataset->inode), name);
+	parh5I_store_inode(parh5G_get_inode(parent_group), parh5G_get_parallax_db(parent_group));
 
 	log_debug("Dimensions of new dataspace are %d", H5Sget_simple_extent_ndims(dataset->space_id));
 
@@ -499,8 +506,8 @@ void *parh5D_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 		log_fatal("Dataset can only be associated with a group/file object");
 		_exit(EXIT_FAILURE);
 	}
-	/*search*/
-	uint64_t inode_num = parh5I_bsearch_inode(parh5G_get_inode(parent_group), name);
+	uint64_t inode_num =
+		parh5I_path_search(parh5G_get_inode(parent_group), name, parh5G_get_parallax_db(parent_group));
 	if (0 == inode_num) {
 		log_debug("Dataset: %s does not exist", name);
 		return NULL;
@@ -733,7 +740,6 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 	struct parh5D_tile_cursor *cursor = parh5D_create_tile_cursor(dataset, (void *)buf[0], mem_type_id[0],
 								      real_file_space_id, PARH5D_WRITE_CURSOR);
 	for (bool ret = true; cursor != NULL && ret; ret = parh5D_advance_tile_cursor(cursor)) {
-		// log_debug("Writing tile uuid: %lu....", cursor->tile.uuid);
 		parh5D_write_tile(cursor->dataset, cursor->tile.uuid, cursor->tile.tile_buffer,
 				  cursor->tile.size_in_bytes);
 	}

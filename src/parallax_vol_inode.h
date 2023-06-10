@@ -16,8 +16,8 @@ typedef struct parh5I_inode *parh5I_inode_t;
 bool parh5I_store_inode(parh5I_inode_t inode, par_handle par_db);
 
 /**
-  * @brief returns the name of the group
-  * @param [in] inode reference to the group object
+  * @brief returns the name of the inode
+  * @param [in] inode reference to the inode object
   * @return the group name
   */
 const char *parh5I_get_inode_name(parh5I_inode_t inode);
@@ -27,7 +27,7 @@ const char *parh5I_get_inode_name(parh5I_inode_t inode);
  * @param [in] reference to the root inode
  * @param [in] handle to the Parallax db to write the new version of the root inode
  */
-uint64_t parh5G_generate_inode_num(parh5I_inode_t root_inode, par_handle par_db);
+uint64_t parh5I_generate_inode_num(parh5I_inode_t root_inode, par_handle par_db);
 
 /**
  * @brief Fetches the inode
@@ -38,13 +38,14 @@ uint64_t parh5G_generate_inode_num(parh5I_inode_t root_inode, par_handle par_db)
 parh5I_inode_t parh5I_get_inode(par_handle par_db, uint64_t inode_num);
 
 /**
- * @brief Performs a binary search in the inode to find the next entry
+ * @brief Performs a linear search in the inode to find the next entry
  * to visit.
  * @param [in] inode pointer to the inode object
  * @param [in] pivot the name of the entry to search for
  * @return the inode number of the entry or 0 if not found
  */
-uint64_t parh5I_bsearch_inode(parh5I_inode_t, const char *pivot);
+uint64_t parh5I_lsearch_inode(parh5I_inode_t, const char *pivot);
+
 /**
   * @brief Creates an inode. Caution it does not save it to Parallax
   * @param [in] name inode name
@@ -55,8 +56,6 @@ uint64_t parh5I_bsearch_inode(parh5I_inode_t, const char *pivot);
   */
 parh5I_inode_t parh5I_create_inode(const char *name, parh5_object_e type, parh5I_inode_t root_inode, par_handle par_db);
 
-const char *parh5I_get_inode_name(parh5I_inode_t inode);
-
 /**
  * @brief Adds an entry to the inode
  * @param [in] inode pointer to the inode object
@@ -66,7 +65,30 @@ const char *parh5I_get_inode_name(parh5I_inode_t inode);
 */
 bool parh5I_add_inode(parh5I_inode_t inode, uint64_t inode_num, const char *name);
 
+/**
+  * @brief returns the inode number of the inode
+  * @param [in] inode reference to inode object
+  * @return the inode number on success or 0 on failure
+*/
 uint64_t parh5I_get_inode_num(parh5I_inode_t inode);
 
+/**
+  *@brief Returns the buffer and the size inside the inode of the
+  * dataset that is available for writing.
+  * @param [in] inode reference to the inode object
+  * @param [out] size contains the available space
+  * @return the pointer to the buffer on SUCCESS. If the inode is not a
+  * dataset method fails and returns NULL.
+*/
 char *parh5I_get_inode_buf(parh5I_inode_t inode, uint32_t *size);
+
+/**
+  * @brief Searches a path in the form of group1/.../groupN and returns the inode num
+  * of groupN.
+  * @param inode reference to the inode object
+  * @param path_search the path to search
+  * @param par_db reference to the database of parallax.
+  */
+uint64_t parh5I_path_search(parh5I_inode_t inode, const char *path_search, par_handle par_db);
+
 #endif

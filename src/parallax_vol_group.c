@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 struct parh5G_group {
+	parh5_object_e type;
 	parh5F_file_t file;
 	struct parh5I_inode *inode;
 };
@@ -118,12 +119,28 @@ struct parh5G_group {
 // 	group->par_db = parh5F_get_parallax_db(group->file);
 // 	return true;
 // }
-
-parh5G_group_t parh5G_new_group(parh5F_file_t file, const char *name)
+parh5G_group_t parh5G_open_group(parh5F_file_t file, parh5I_inode_t inode)
 {
 	parh5G_group_t group = calloc(1UL, sizeof(struct parh5G_group));
+	group->type = PARH5_GROUP;
 	group->file = file;
-	parh5I_inode_t inode = parh5I_create_inode(name, PARH5_GROUP, NULL, parh5F_get_parallax_db(file));
+	group->inode = inode;
+
+	return group;
+}
+
+parh5G_group_t parh5G_create_group(parh5F_file_t file, const char *name)
+{
+	log_debug("Creating group: %s", name);
+	parh5G_group_t group = calloc(1UL, sizeof(struct parh5G_group));
+	group->type = PARH5_GROUP;
+	group->file = file;
+	parh5G_group_t root_group = parh5F_get_root_group(file);
+	if (NULL == root_group)
+		log_debug("Creating root group for: %s", name);
+
+	parh5I_inode_t inode = parh5I_create_inode(name, PARH5_GROUP, root_group ? root_group->inode : NULL,
+						   parh5F_get_parallax_db(file));
 	parh5I_store_inode(inode, parh5F_get_parallax_db(file));
 	group->inode = inode;
 
@@ -157,23 +174,25 @@ void *parh5G_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	} else if (PARH5_GROUP == *obj_type)
 		parent_group = (parh5G_group_t)obj;
 	else {
-		log_fatal("Parent can be either a group or file");
+		log_fatal("Parent can be either a group or file instead it is: %d", *obj_type);
 		_exit(EXIT_FAILURE);
 	}
 
 	/*first do a search in "parent to see if group is already there"*/
-	if (parh5I_bsearch_inode(parent_group->inode, name) == 0) {
+	if (parh5I_path_search(parent_group ? parent_group->inode : NULL, name, parh5G_get_parallax_db(parent_group)) >
+	    0) {
 		log_fatal("group %s already exists", name);
 		_exit(EXIT_FAILURE);
 	}
-	parh5G_group_t new_group = parh5G_new_group(parent_group->file, name);
-	//save inode to parallax
-	parh5I_store_inode(new_group->inode, parh5F_get_parallax_db(parent_group->file));
+	parh5G_group_t new_group = parh5G_create_group(parent_group->file, name);
+	// //save inode to parallax
+	// parh5I_store_inode(new_group->inode, parh5G_get_parallax_db(parent_group));
 	//inform the parent
 	if (!parh5I_add_inode(parent_group->inode, parh5I_get_inode_num(new_group->inode), name)) {
 		log_fatal("inode of parent group need resizing XXX TODO XXX");
 		_exit(EXIT_FAILURE);
 	};
+	parh5I_store_inode(parent_group->inode, parh5G_get_parallax_db(parent_group));
 	return new_group;
 }
 
@@ -200,7 +219,7 @@ void *parh5G_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 		log_fatal("Parent can be either a group or file");
 		_exit(EXIT_FAILURE);
 	}
-	uint64_t inode_num = parh5I_bsearch_inode(parent_group->inode, name);
+	uint64_t inode_num = parh5I_path_search(parent_group->inode, name, parh5G_get_parallax_db(parent_group));
 
 	if (inode_num) {
 		parh5I_inode_t inode = parh5I_get_inode(parh5F_get_parallax_db(parent_group->file), inode_num);
@@ -210,20 +229,22 @@ void *parh5G_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 			_exit(EXIT_FAILURE);
 		}
 		parh5G_group_t new_group = calloc(1UL, sizeof(*new_group));
+		new_group->type = PARH5_GROUP;
 		new_group->file = parent_group->file;
 		new_group->inode = inode;
 		return new_group;
 	}
 	log_debug("group: %s does not exist, creating a new one", name);
 
-	parh5G_group_t new_group = parh5G_new_group(parent_group->file, name);
+	parh5G_group_t new_group = parh5G_create_group(parent_group->file, name);
 	//save inode to parallax
-	parh5I_store_inode(new_group->inode, parh5F_get_parallax_db(parent_group->file));
+	parh5I_store_inode(new_group->inode, parh5G_get_parallax_db(parent_group));
 	//inform the parent
 	if (!parh5I_add_inode(parent_group->inode, parh5I_get_inode_num(new_group->inode), name)) {
 		log_fatal("inode of parent group needs resizing XXX TODO XXX");
 		_exit(EXIT_FAILURE);
 	};
+	parh5I_store_inode(parent_group->inode, parh5G_get_parallax_db(parent_group));
 	return new_group;
 }
 
@@ -271,4 +292,20 @@ herr_t parh5G_close(void *grp, hid_t dxpl_id, void **req)
 	}
 	free(grp);
 	return PARH5_SUCCESS;
+}
+
+inline parh5I_inode_t parh5G_get_inode(parh5G_group_t group)
+{
+	return group ? group->inode : NULL;
+}
+
+inline par_handle parh5G_get_parallax_db(parh5G_group_t group)
+{
+	return group ? parh5F_get_parallax_db(group->file) : NULL;
+}
+
+parh5I_inode_t parh5G_get_root_inode(parh5G_group_t group)
+{
+	parh5G_group_t root_group = parh5F_get_root_group(group->file);
+	return root_group->inode;
 }

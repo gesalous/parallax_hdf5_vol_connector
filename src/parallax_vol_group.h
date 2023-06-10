@@ -27,13 +27,10 @@ typedef struct parh5G_group *parh5G_group_t;
 bool parh5G_add_dataset(parh5G_group_t group, const char *dataset_name, const char **error_message);
 
 /**
- * @brief Returns the name of the group
-  * @param group reference to the group
-  * @return on success a non NULL string with the group's name
-*/
-// const char *parh5G_get_group_name(parh5G_group_t group);
-
-// uint64_t parh5G_get_group_uuid(parh5G_group_t group);
+ * @brief Returns the parallax db handle that this group
+ * is associated.
+ * @param [in] group reference to the group object
+ */
 par_handle parh5G_get_parallax_db(parh5G_group_t group);
 
 /**
@@ -42,7 +39,27 @@ par_handle parh5G_get_parallax_db(parh5G_group_t group);
  * @param [in] file reference to the file object
  * @param [in] name the name of the file
  */
-parh5G_group_t parh5G_new_group(parh5F_file_t file, const char *name);
+parh5G_group_t parh5G_create_group(parh5F_file_t file, const char *name);
 
+/**
+  * @brief Returns the inode associated with this group object.
+  *  @param group reference to the group object
+  *  @return reference to inode object or NULL on failure
+*/
 parh5I_inode_t parh5G_get_inode(parh5G_group_t group);
+
+/**
+* @brief opens a group hosted in file with inode.
+  * @param [in] file reference to the file object
+  * @param [in] inode reference to the inode object
+  * @return Allocate and initializes the corresponding group object
+* or NULL on failure
+*/
+parh5G_group_t parh5G_open_group(parh5F_file_t file, parh5I_inode_t inode);
+
+/**
+* @brief Returns the root inode of the set that this group
+  * belongs.
+  */
+parh5I_inode_t parh5G_get_root_inode(parh5G_group_t group);
 #endif
