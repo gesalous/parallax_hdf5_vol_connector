@@ -1,6 +1,10 @@
 #include "parallax_vol_inode.h"
 #include "parallax/structures.h"
 #include "parallax_vol_connector.h"
+#include "parallax_vol_dataset.h"
+#include "parallax_vol_file.h"
+#include "parallax_vol_group.h"
+#include <H5VLconnector.h>
 #include <assert.h>
 #include <log.h>
 #include <stdint.h>
@@ -9,6 +13,8 @@
 #include <unistd.h>
 #define PARH5I_NAME_SIZE 128
 #define PARH5I_KEY_SIZE 9
+
+typedef struct parh5D_dataset *parh5D_dataset_t;
 
 struct parh5I_slot_entry {
 	uint64_t inode_num;
@@ -35,6 +41,42 @@ struct parh5I_inode {
 // 	log_debug("Inode nitems: %u", inode->n_items);
 // 	log_debug("Inode type: %d", inode->type);
 // }
+
+void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *objs, parh5F_file_t file)
+{
+	par_handle par_db = parh5F_get_parallax_db(file);
+	log_debug("Inode: %s", inode->name);
+	if (inode->type != PARH5_GROUP && inode->type != PARH5_DATASET) {
+		log_fatal("Corrupted inode");
+		_exit(EXIT_FAILURE);
+	}
+
+	if (inode->type == PARH5_DATASET) {
+		parh5D_dataset_t dataset = parh5D_open_dataset(inode, file);
+		log_debug("Added Dataset of name: %s at idx %lu", inode->name, *objs->count);
+		objs->oid_list[(*objs->count)++] = (hid_t)dataset;
+		return;
+	}
+	parh5G_group_t self_group = parh5G_open_group(file, inode);
+	// Recursive call for directories
+	for (uint32_t i = 0; i < inode->n_items; i++) {
+		parh5I_inode_t child_inode = parh5I_get_inode(par_db, inode->slot_array[i].inode_num);
+		parh5I_get_all_objects(child_inode, objs, file);
+	}
+
+	if (*objs->count >= objs->max_objs) {
+		log_fatal("Overflow! objs_count is %ld max objs %ld", *objs->count, objs->max_objs);
+		_exit(EXIT_FAILURE);
+	}
+	log_debug("Adding Group of name: %s at idx %lu", inode->name, *objs->count);
+	objs->oid_list[(*objs->count)++] = (hid_t)self_group;
+}
+
+uint64_t parh5I_get_obj_count(parh5I_inode_t root_inode)
+{
+	log_debug("obj_count in the system root_inode: %s is %lu", root_inode->name, root_inode->counter);
+	return root_inode ? root_inode->counter : 0;
+}
 
 uint64_t parh5I_generate_inode_num(parh5I_inode_t root_inode, par_handle par_db)
 {

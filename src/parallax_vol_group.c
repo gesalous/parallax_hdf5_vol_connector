@@ -125,7 +125,6 @@ parh5G_group_t parh5G_open_group(parh5F_file_t file, parh5I_inode_t inode)
 	group->type = PARH5_GROUP;
 	group->file = file;
 	group->inode = inode;
-
 	return group;
 }
 
@@ -308,4 +307,9 @@ parh5I_inode_t parh5G_get_root_inode(parh5G_group_t group)
 {
 	parh5G_group_t root_group = parh5F_get_root_group(group->file);
 	return root_group->inode;
+}
+
+parh5F_file_t parh5G_get_file(parh5G_group_t group)
+{
+	return group ? group->file : NULL;
 }

@@ -7,6 +7,7 @@
 #include "parallax_vol_inode.h"
 #include "uthash.h"
 #include <H5Fpublic.h>
+#include <H5Ipublic.h>
 #include <H5Ppublic.h>
 #include <H5Tpublic.h>
 #include <assert.h>
@@ -143,15 +144,95 @@ void *parh5F_open(const char *name, unsigned flags, hid_t fapl_id, hid_t dxpl_id
 	return parh5F_new_file(name, PAR_CREATE_DB);
 }
 
-herr_t parh5F_get(void *obj, H5VL_file_get_args_t *args, hid_t dxpl_id, void **req)
+static const char *parh5F_type_to_string(int type)
 {
-	(void)obj;
-	(void)args;
+	if (type == -2)
+		return "ALL OBJECTS";
+
+	if (type == H5O_TYPE_UNKNOWN)
+		return "H50_TYPE_UNKNOWN";
+
+	if (type == H5O_TYPE_GROUP)
+		return "H50_TYPE_GROUP";
+
+	if (type == H5O_TYPE_DATASET)
+		return "H5O_TYPE_DATASET";
+
+	if (type == H5O_TYPE_NAMED_DATATYPE)
+		return "H5O_TYPE_NAMED_DATATYPE";
+
+	if (type == H5O_TYPE_MAP)
+		return "H5O_TYPE_MAP";
+
+	return "What?";
+}
+
+herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void **req)
+{
+	parh5_object_e *obj_type = (parh5_object_e *)obj;
+
+	if (PARH5_FILE != *obj_type) {
+		log_fatal("Object should be a file");
+		_exit(EXIT_FAILURE);
+	}
+	parh5F_file_t file = (parh5F_file_t)obj;
+	switch (fquery->op_type) {
+	case H5VL_FILE_GET_CONT_INFO:
+		log_debug("H5VL_FILE_GET_CONT_INFO");
+		break;
+	case H5VL_FILE_GET_FAPL:
+		log_debug("H5VL_FILE_GET_FAPL");
+		break;
+	case H5VL_FILE_GET_FCPL:
+		log_debug("H5VL_GET_FCPL");
+		break;
+	case H5VL_FILE_GET_FILENO:
+		log_debug("H5VL_FILE_GET_FILENO");
+		break;
+	case H5VL_FILE_GET_INTENT:
+		log_debug("H5VL_FILE_GET_INTENT");
+		break;
+	case H5VL_FILE_GET_NAME:
+		log_debug("H5VL_FILE_GET_NAME");
+
+		if (NULL == fquery->args.get_name.buf) {
+			*fquery->args.get_name.file_name_len = strlen(file->name) + 1;
+			return PARH5_SUCCESS;
+		}
+		if (fquery->args.get_name.buf_size < strlen(file->name) + 1) {
+			log_fatal("Overflow buffer too small buf size is %lu actual size: %lu",
+				  fquery->args.get_name.buf_size, strlen(file->name) + 1);
+			_exit(EXIT_FAILURE);
+		}
+
+		memcpy(fquery->args.get_name.buf, file->name, strlen(file->name) + 1);
+		*fquery->args.get_name.file_name_len = strlen(file->name) + 1;
+		return PARH5_SUCCESS;
+	case H5VL_FILE_GET_OBJ_COUNT:;
+		log_debug("H5VL_FILE_GET_OBJ_COUNT Counting all ommiting types to count... XXX TODO XXX");
+		parh5G_group_t root_group = parh5F_get_root_group(file);
+		parh5I_inode_t inode = parh5G_get_inode(root_group);
+		*fquery->args.get_obj_count.count = parh5I_get_obj_count(inode);
+
+		log_debug("types are %s count is %lu", parh5F_type_to_string(fquery->args.get_obj_count.types),
+			  *fquery->args.get_obj_count.count);
+		return PARH5_SUCCESS;
+	case H5VL_FILE_GET_OBJ_IDS:
+		log_debug("H5VL_FILE_GET_OBJ_IDS");
+		parh5G_group_t root = parh5F_get_root_group(file);
+		*fquery->args.get_obj_ids.count = 0;
+		parh5I_get_all_objects(parh5G_get_inode(root), &fquery->args.get_obj_ids, file);
+		return PARH5_SUCCESS;
+	default:
+		log_fatal("Unknown option");
+		_exit(EXIT_FAILURE);
+	}
+
 	(void)dxpl_id;
 	(void)req;
 	log_fatal("Sorry unimplemented XXX TODO\n");
 	_exit(EXIT_FAILURE);
-	return 1;
+	return PARH5_FAILURE;
 }
 
 static void parh5F_handle_file_flush(parh5F_file_t file, H5VL_file_specific_args_t *file_query)

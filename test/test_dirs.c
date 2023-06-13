@@ -19,13 +19,13 @@
 int main(void)
 {
 	/* Register the connector by name */
-	hid_t vol_id = { 0 };
-	if ((vol_id = H5VLregister_connector_by_name(PARALLAX_VOL_CONNECTOR_NAME, H5P_DEFAULT)) < 0) {
-		log_fatal("Failed to register connector %s", PARALLAX_VOL_CONNECTOR_NAME);
-		_exit(EXIT_FAILURE);
-	}
+	// hid_t vol_id = { 0 };
+	// if ((vol_id = H5VLregister_connector_by_name(PARALLAX_VOL_CONNECTOR_NAME, H5P_DEFAULT)) < 0) {
+	// 	log_fatal("Failed to register connector %s", PARALLAX_VOL_CONNECTOR_NAME);
+	// 	_exit(EXIT_FAILURE);
+	// }
 	hid_t fapl_id = H5Pcreate(H5P_FILE_ACCESS);
-	H5Pset_vol(fapl_id, vol_id, NULL);
+	// H5Pset_vol(fapl_id, vol_id, NULL);
 	// Create HDF5 file
 	hid_t file_id = H5Fcreate(PAR_TEST_FILENAME, H5F_ACC_TRUNC, H5P_DEFAULT, fapl_id);
 	if (file_id < 0) {
@@ -106,6 +106,27 @@ int main(void)
 	}
 
 	log_info("Verification successful: All array values are 1.0\n");
+
+	log_info("Finally fetching all objects...");
+
+	ssize_t num_objs = H5Fget_obj_count(file_id, H5F_OBJ_GROUP | H5F_OBJ_DATASET);
+
+	// Allocate memory for the object IDs
+	hid_t *obj_ids = calloc(num_objs, sizeof(hid_t));
+	// Get the object IDs of the groups and datasets
+	num_objs = H5Fget_obj_ids(file_id, H5F_OBJ_GROUP | H5F_OBJ_DATASET, num_objs, obj_ids);
+	if (num_objs < 0) {
+		log_fatal("Failed to get object IDs");
+		_exit(EXIT_FAILURE);
+	}
+
+	// Iterate over the object IDs and print their names
+	for (ssize_t i = 0; i < num_objs; i++) {
+		char obj_name[256];
+		H5Iget_name(obj_ids[i], obj_name, sizeof(obj_name));
+		log_debug("--->Object: %s\n", obj_name);
+		// H5Idec_ref(obj_ids[i]);
+	}
 
 	// Close the dataset, dataspace, and file
 	H5Sclose(dataspace_id);

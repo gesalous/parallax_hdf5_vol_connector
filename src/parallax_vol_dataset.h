@@ -1,6 +1,10 @@
 #ifndef PARALLAX_VOL_DATASET_H
 #define PARALLAX_VOL_DATASET_H
 #include <H5VLconnector.h>
+typedef struct parh5D_dataset *parh5D_dataset_t;
+typedef struct parh5I_inode *parh5I_inode_t;
+typedef struct parh5F_file *parh5F_file_t;
+
 /*VOL-plugin specific functions*/
 void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t type_id,
 		    hid_t space_id, hid_t dcpl_id, hid_t dapl_id, hid_t dxpl_id, void **req);
@@ -16,5 +20,6 @@ herr_t parh5D_optional(void *obj, H5VL_optional_args_t *args, hid_t dxpl_id, voi
 herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req);
 
 /*Non VOL specific functions*/
-typedef struct parh5D_dataset *parh5D_dataset_t;
+
+parh5D_dataset_t parh5D_open_dataset(parh5I_inode_t inode, parh5F_file_t file);
 #endif

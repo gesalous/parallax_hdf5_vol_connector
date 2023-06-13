@@ -7,6 +7,7 @@
 #define PARH5I_INODE_SIZE 512
 #define PARH5I_NAME_SIZE 128
 typedef struct parh5I_inode *parh5I_inode_t;
+typedef struct parh5F_file *parh5F_file_t;
 /**
  * @brief Stores the inode of the group in Parallax.
  * @param [in] inode reference to the inode to store
@@ -91,4 +92,12 @@ char *parh5I_get_inode_buf(parh5I_inode_t inode, uint32_t *size);
   */
 uint64_t parh5I_path_search(parh5I_inode_t inode, const char *path_search, par_handle par_db);
 
+/**
+  * @brief returns the number of objects in the file system
+  * @param root_inode pointer to the root_inode of the system
+  * @return the number of objs
+*/
+uint64_t parh5I_get_obj_count(parh5I_inode_t root_inode);
+
+void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *objs, parh5F_file_t file);
 #endif

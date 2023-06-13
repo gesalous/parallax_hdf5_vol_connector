@@ -62,4 +62,6 @@ parh5G_group_t parh5G_open_group(parh5F_file_t file, parh5I_inode_t inode);
   * belongs.
   */
 parh5I_inode_t parh5G_get_root_inode(parh5G_group_t group);
+
+parh5F_file_t parh5G_get_file(parh5G_group_t group);
 #endif
