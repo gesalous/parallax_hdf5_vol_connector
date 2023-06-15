@@ -1,7 +1,7 @@
 #ifndef PARALLAX_VOL_ATTRIBUTE_H
 #define PARALLAX_VOL_ATTRIBUTE_H
 #include <H5VLconnector.h>
-
+typedef struct parh5A_attribute *parh5A_attribute_t;
 /* H5A routines */
 void *parh5A_create(void *obj, const H5VL_loc_params_t *loc_params, const char *attr_name, hid_t type_id,
 		    hid_t space_id, hid_t acpl_id, hid_t aapl_id, hid_t dxpl_id, void **req);

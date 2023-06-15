@@ -184,7 +184,8 @@ static void parh5D_write_tile(parh5D_dataset_t dataset, uint64_t tile_uuid, char
 	struct par_key_value KV = { .k = par_key, .v = par_value };
 	par_put(parh5F_get_parallax_db(dataset->file), &KV, &error);
 	if (error) {
-		log_debug("Failed to write tile with uuid: %lu reason: %s", tile_uuid, error);
+		log_debug("Failed to write tile with uuid: %lu reason: %s tile size is %lu", tile_uuid, error,
+			  tile_size);
 		_exit(EXIT_FAILURE);
 	}
 }
@@ -842,4 +843,19 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 	free(dataset);
 
 	return PARH5_SUCCESS;
+}
+
+const char *parh5D_get_dataset_name(parh5D_dataset_t dataset)
+{
+	return dataset ? parh5I_get_inode_name(dataset->inode) : NULL;
+}
+
+parh5I_inode_t parh5D_get_inode(parh5D_dataset_t dataset)
+{
+	return dataset ? dataset->inode : NULL;
+}
+
+parh5F_file_t parh5D_get_file(parh5D_dataset_t dataset)
+{
+	return dataset ? dataset->file : NULL;
 }

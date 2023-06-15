@@ -13,7 +13,7 @@
 #include <unistd.h>
 #define PARH5I_NAME_SIZE 128
 #define PARH5I_KEY_SIZE 9
-
+#define PARH5I_INODE_KEY_PREFIX 'I'
 typedef struct parh5D_dataset *parh5D_dataset_t;
 
 struct parh5I_slot_entry {
@@ -164,7 +164,7 @@ bool parh5I_add_inode(parh5I_inode_t inode, uint64_t inode_num, const char *pivo
 
 bool parh5I_store_inode(parh5I_inode_t inode, par_handle par_db)
 {
-	char key_buffer[PARH5I_KEY_SIZE] = { 'G' };
+	char key_buffer[PARH5I_KEY_SIZE] = { PARH5I_INODE_KEY_PREFIX };
 	memcpy(&key_buffer[1], &inode->inode_num, sizeof(inode->inode_num));
 	struct par_key par_key = { .size = sizeof(key_buffer), .data = key_buffer };
 
@@ -187,7 +187,7 @@ bool parh5I_store_inode(parh5I_inode_t inode, par_handle par_db)
 
 parh5I_inode_t parh5I_get_inode(par_handle par_db, uint64_t inode_num)
 {
-	char key_buffer[PARH5I_KEY_SIZE] = { 'G' };
+	char key_buffer[PARH5I_KEY_SIZE] = { PARH5I_INODE_KEY_PREFIX };
 	memcpy(&key_buffer[1], &inode_num, sizeof(inode_num));
 	struct par_key par_key = { .size = PARH5I_KEY_SIZE, .data = key_buffer };
 	struct par_value par_value = { 0 };

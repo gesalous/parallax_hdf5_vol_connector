@@ -22,4 +22,7 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req);
 /*Non VOL specific functions*/
 
 parh5D_dataset_t parh5D_open_dataset(parh5I_inode_t inode, parh5F_file_t file);
+const char *parh5D_get_dataset_name(parh5D_dataset_t dataset);
+parh5I_inode_t parh5D_get_inode(parh5D_dataset_t dataset);
+parh5F_file_t parh5D_get_file(parh5D_dataset_t dataset);
 #endif
