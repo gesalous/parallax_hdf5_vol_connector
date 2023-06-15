@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 struct parh5G_group {
-	parh5_object_e type;
+	H5I_type_t type;
 	parh5F_file_t file;
 	struct parh5I_inode *inode;
 };
@@ -122,7 +122,7 @@ struct parh5G_group {
 parh5G_group_t parh5G_open_group(parh5F_file_t file, parh5I_inode_t inode)
 {
 	parh5G_group_t group = calloc(1UL, sizeof(struct parh5G_group));
-	group->type = PARH5_GROUP;
+	group->type = H5I_GROUP;
 	group->file = file;
 	group->inode = inode;
 	return group;
@@ -132,13 +132,13 @@ parh5G_group_t parh5G_create_group(parh5F_file_t file, const char *name)
 {
 	log_debug("Creating group: %s", name);
 	parh5G_group_t group = calloc(1UL, sizeof(struct parh5G_group));
-	group->type = PARH5_GROUP;
+	group->type = H5I_GROUP;
 	group->file = file;
 	parh5G_group_t root_group = parh5F_get_root_group(file);
 	if (NULL == root_group)
 		log_debug("Creating root group for: %s", name);
 
-	parh5I_inode_t inode = parh5I_create_inode(name, PARH5_GROUP, root_group ? root_group->inode : NULL,
+	parh5I_inode_t inode = parh5I_create_inode(name, H5I_GROUP, root_group ? root_group->inode : NULL,
 						   parh5F_get_parallax_db(file));
 	parh5I_store_inode(inode, parh5F_get_parallax_db(file));
 	group->inode = inode;
@@ -164,13 +164,13 @@ void *parh5G_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	(void)dxpl_id;
 	(void)req;
 
-	parh5_object_e *obj_type = (parh5_object_e *)obj;
+	H5I_type_t *obj_type = obj;
 	parh5G_group_t parent_group = NULL;
 
-	if (PARH5_FILE == *obj_type) {
+	if (H5I_FILE == *obj_type) {
 		parh5F_file_t file = (parh5F_file_t)obj;
 		parent_group = parh5F_get_root_group(file);
-	} else if (PARH5_GROUP == *obj_type)
+	} else if (H5I_GROUP == *obj_type)
 		parent_group = (parh5G_group_t)obj;
 	else {
 		log_fatal("Parent can be either a group or file instead it is: %d", *obj_type);
@@ -206,13 +206,13 @@ void *parh5G_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 	// log_debug("<group_properties>");
 	// H5Piterate(gapl_id, NULL, parh5_property_list_iterator, NULL);
 	// log_debug("</group_properties>");
-	parh5_object_e *obj_type = (parh5_object_e *)obj;
+	H5I_type_t *obj_type = obj;
 	parh5G_group_t parent_group = NULL;
 
-	if (PARH5_FILE == *obj_type) {
+	if (H5I_FILE == *obj_type) {
 		parh5F_file_t file = (parh5F_file_t)obj;
 		parent_group = parh5F_get_root_group(file);
-	} else if (PARH5_GROUP == *obj_type)
+	} else if (H5I_GROUP == *obj_type)
 		parent_group = (parh5G_group_t)obj;
 	else {
 		log_fatal("Parent can be either a group or file");
@@ -228,7 +228,7 @@ void *parh5G_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 			_exit(EXIT_FAILURE);
 		}
 		parh5G_group_t new_group = calloc(1UL, sizeof(*new_group));
-		new_group->type = PARH5_GROUP;
+		new_group->type = H5I_GROUP;
 		new_group->file = parent_group->file;
 		new_group->inode = inode;
 		return new_group;
@@ -284,8 +284,8 @@ herr_t parh5G_close(void *grp, hid_t dxpl_id, void **req)
 {
 	(void)dxpl_id;
 	(void)req;
-	parh5_object_e *obj_type = (parh5_object_e *)grp;
-	if (PARH5_GROUP != *obj_type) {
+	H5I_type_t *obj_type = grp;
+	if (H5I_GROUP != *obj_type) {
 		log_fatal("Object is not a Group object!");
 		_exit(EXIT_FAILURE);
 	}

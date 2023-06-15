@@ -22,7 +22,7 @@ struct parh5I_slot_entry {
 } __attribute((packed));
 
 struct parh5I_inode {
-	parh5_object_e type; /*group or dataset*/
+	H5I_type_t type; /*group or dataset*/
 	char name[PARH5I_NAME_SIZE];
 	uint64_t inode_num;
 	uint64_t counter;
@@ -46,12 +46,12 @@ void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *
 {
 	par_handle par_db = parh5F_get_parallax_db(file);
 	log_debug("Inode: %s", inode->name);
-	if (inode->type != PARH5_GROUP && inode->type != PARH5_DATASET) {
+	if (inode->type != H5I_GROUP && inode->type != H5I_DATASET) {
 		log_fatal("Corrupted inode");
 		_exit(EXIT_FAILURE);
 	}
 
-	if (inode->type == PARH5_DATASET) {
+	if (inode->type == H5I_DATASET) {
 		parh5D_dataset_t dataset = parh5D_open_dataset(inode, file);
 		log_debug("Added Dataset of name: %s at idx %lu", inode->name, *objs->count);
 		objs->oid_list[(*objs->count)++] = (hid_t)dataset;
@@ -207,7 +207,7 @@ parh5I_inode_t parh5I_get_inode(par_handle par_db, uint64_t inode_num)
 	return (parh5I_inode_t)par_value.val_buffer;
 }
 
-parh5I_inode_t parh5I_create_inode(const char *name, parh5_object_e type, parh5I_inode_t root_inode, par_handle par_db)
+parh5I_inode_t parh5I_create_inode(const char *name, H5I_type_t type, parh5I_inode_t root_inode, par_handle par_db)
 {
 	parh5I_inode_t inode = calloc(1UL, PARH5I_INODE_SIZE);
 	if (strlen(name) + 1 > PARH5I_NAME_SIZE) {
@@ -246,7 +246,7 @@ char *parh5I_get_inode_buf(parh5I_inode_t inode, uint32_t *size)
 	if (!inode)
 		return NULL;
 
-	if (inode->type != PARH5_DATASET) {
+	if (inode->type != H5I_DATASET) {
 		log_fatal("Operation permittted only for group inodes");
 		_exit(EXIT_FAILURE);
 	}

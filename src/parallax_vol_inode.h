@@ -55,7 +55,7 @@ uint64_t parh5I_lsearch_inode(parh5I_inode_t, const char *pivot);
   * @param [in] par_db Parallax db where to generate the inode
   * @return pointer to the new inode or NULL on failure
   */
-parh5I_inode_t parh5I_create_inode(const char *name, parh5_object_e type, parh5I_inode_t root_inode, par_handle par_db);
+parh5I_inode_t parh5I_create_inode(const char *name, H5I_type_t type, parh5I_inode_t root_inode, par_handle par_db);
 
 /**
  * @brief Adds an entry to the inode

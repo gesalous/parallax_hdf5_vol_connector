@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 #define PARH5D_MAX_DIMENSIONS 5
-#define PARH5D_TILE_SIZE_IN_ELEMS 16
+#define PARH5D_TILE_SIZE_IN_ELEMS 1
 
 #define PARH5D_PAR_CHECK_ERROR(X)                                 \
 	if (X) {                                                  \
@@ -52,7 +52,7 @@ struct parh5D_tile_cursor {
 };
 
 struct parh5D_dataset {
-	parh5_object_e type;
+	H5I_type_t type;
 	parh5I_inode_t inode;
 	parh5F_file_t file; /*Where does this dataset belongs*/
 	hid_t space_id; /*info about the space*/
@@ -208,10 +208,12 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 	cursor->mem_elem_id = 0;
 	cursor->memtype = memtype;
 	cursor->ndims = H5Sget_simple_extent_ndims(file_space);
+
 	if (cursor->ndims < 0) {
 		log_fatal("Failed to get dimensions");
 		_exit(EXIT_FAILURE);
 	}
+
 	if (H5Sget_simple_extent_dims(file_space, cursor->shape, NULL) < 0) {
 		log_fatal("Failed to get the shape of the array");
 		_exit(EXIT_FAILURE);
@@ -219,6 +221,7 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 
 	/* Get number of elements in selections */
 	cursor->nelems = H5Sget_select_npoints(file_space);
+
 	H5Sget_select_bounds(file_space, cursor->start_coords, cursor->end_coords);
 
 	hsize_t coords[PARH5D_MAX_DIMENSIONS];
@@ -263,11 +266,18 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 		return cursor;
 	}
 
+	if (cursor->tile.size_in_bytes > cursor->nelems * H5Tget_size(cursor->memtype)) {
+		log_fatal("Subtile access tile size in bytes is %u actual %lu", cursor->tile.size_in_bytes,
+			  cursor->nelems * H5Tget_size(cursor->memtype));
+		_exit(EXIT_FAILURE);
+	}
 	/*The first tile is the one of the in memory array*/
-	if (PARH5D_WRITE_CURSOR == cursor->cursor_type && storage_tile_id == storage_elem_id)
+	if (PARH5D_WRITE_CURSOR == cursor->cursor_type && storage_tile_id == storage_elem_id) {
+		log_debug("Ok all same");
 		return cursor;
+	}
 
-	//Sorry misalinged or read access need to fetch it
+	//Sorry misalinged, sub tile, or read access need to fetch it
 	cursor->tile.tile_buffer = calloc(1UL, cursor->tile.size_in_bytes);
 	cursor->tile.malloced = true;
 	parh5D_fetch_tile(cursor, cursor->tile.uuid, cursor->tile.tile_buffer, cursor->tile.size_in_bytes);
@@ -436,7 +446,7 @@ static void parh5D_deserialize_dataset(parh5D_dataset_t dataset)
 parh5D_dataset_t parh5D_open_dataset(parh5I_inode_t inode, parh5F_file_t file)
 {
 	parh5D_dataset_t dataset = calloc(1UL, sizeof(*dataset));
-	dataset->type = PARH5_DATASET;
+	dataset->type = H5I_DATASET;
 	dataset->inode = inode;
 	dataset->file = file;
 	parh5D_deserialize_dataset(dataset);
@@ -447,7 +457,7 @@ static parh5D_dataset_t parh5D_read_dataset(parh5G_group_t group, uint64_t inode
 {
 	parh5I_inode_t inode = parh5I_get_inode(parh5G_get_parallax_db(group), inode_num);
 	parh5D_dataset_t dataset = calloc(1UL, sizeof(*dataset));
-	dataset->type = PARH5_DATASET;
+	dataset->type = H5I_DATASET;
 	dataset->file = parh5G_get_file(group);
 	dataset->inode = inode;
 	parh5D_deserialize_dataset(dataset);
@@ -465,13 +475,13 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	(void)dapl_id;
 	(void)req;
 	(void)dxpl_id;
-	parh5_object_e *obj_type = (parh5_object_e *)obj;
+	H5I_type_t *obj_type = obj;
 
 	parh5G_group_t parent_group = NULL;
 
-	if (PARH5_GROUP == *obj_type)
+	if (H5I_GROUP == *obj_type)
 		parent_group = (parh5G_group_t)obj;
-	else if (PARH5_FILE == *obj_type) {
+	else if (H5I_FILE == *obj_type) {
 		parh5F_file_t file = (parh5F_file_t)obj;
 		parent_group = parh5F_get_root_group(file);
 	} else {
@@ -480,9 +490,9 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	}
 
 	parh5D_dataset_t dataset = calloc(1UL, sizeof(struct parh5D_dataset));
-	dataset->type = PARH5_DATASET;
+	dataset->type = H5I_DATASET;
 
-	dataset->inode = parh5I_create_inode(name, PARH5_DATASET, parh5G_get_root_inode(parent_group),
+	dataset->inode = parh5I_create_inode(name, H5I_DATASET, parh5G_get_root_inode(parent_group),
 					     parh5G_get_parallax_db(parent_group));
 	log_debug("Creating dataspace in parent group %s", parh5I_get_inode_name(parh5G_get_inode(parent_group)));
 	dataset->type_id = H5Tcopy(type_id);
@@ -505,13 +515,13 @@ void *parh5D_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 	(void)dapl_id;
 	(void)dxpl_id;
 	(void)req;
-	parh5_object_e *obj_type = (parh5_object_e *)obj;
+	H5I_type_t *obj_type = obj;
 
 	parh5G_group_t parent_group = NULL;
 
-	if (PARH5_GROUP == *obj_type)
+	if (H5I_GROUP == *obj_type)
 		parent_group = (parh5G_group_t)obj;
-	else if (PARH5_FILE == *obj_type) {
+	else if (H5I_FILE == *obj_type) {
 		parh5F_file_t file = (parh5F_file_t)obj;
 		parent_group = parh5F_get_root_group(file);
 	} else {
@@ -545,8 +555,8 @@ herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_sp
 		_exit(EXIT_FAILURE);
 	}
 
-	parh5_object_e *obj_type = (parh5_object_e *)dset[0];
-	if (PARH5_DATASET != *obj_type) {
+	H5I_type_t *obj_type = dset[0];
+	if (H5I_DATASET != *obj_type) {
 		log_fatal("Dataset write can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}
@@ -685,8 +695,8 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 		_exit(EXIT_FAILURE);
 	}
 
-	parh5_object_e *obj_type = (parh5_object_e *)dset[0];
-	if (PARH5_DATASET != *obj_type) {
+	H5I_type_t *obj_type = dset[0];
+	if (H5I_DATASET != *obj_type) {
 		log_fatal("Dataset write can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}
@@ -763,8 +773,8 @@ herr_t parh5D_get(void *obj, H5VL_dataset_get_args_t *get_op, hid_t dxpl_id, voi
 {
 	(void)dxpl_id;
 	(void)req;
-	parh5_object_e *obj_type = (parh5_object_e *)obj;
-	if (PARH5_DATASET != *obj_type) {
+	H5I_type_t *obj_type = obj;
+	if (H5I_DATASET != *obj_type) {
 		log_fatal("Object is not a dataset!");
 		_exit(EXIT_FAILURE);
 	}
@@ -818,8 +828,8 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 	(void)dxpl_id;
 	(void)req;
 
-	parh5_object_e *obj_type = (parh5_object_e *)dset;
-	if (PARH5_DATASET != *obj_type) {
+	H5I_type_t *obj_type = dset;
+	if (H5I_DATASET != *obj_type) {
 		log_fatal("Dataset write can only be associated with a file object");
 		_exit(EXIT_FAILURE);
 	}

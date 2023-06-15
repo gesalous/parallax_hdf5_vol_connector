@@ -32,7 +32,7 @@
 #define PARH5_USE_FILE_LOCKING "use_file_locking"
 #define PARH5_IGNORE_DISABLED_FILE_LOCKS "ignore_disabled_file_locks"
 
-typedef enum { PARH5_FILE = 1, PARH5_GROUP = 2, PARH5_DATASET = 3 } parh5_object_e;
+// typedef enum { PARH5_FILE = 1, PARH5_GROUP = 2, PARH5_DATASET = 3 } parh5_object_e;
 
 herr_t parh5_property_list_iterator(hid_t prop_id, const char *name, void *iter_data);
 #endif /* _parallax_vol_connector_H */

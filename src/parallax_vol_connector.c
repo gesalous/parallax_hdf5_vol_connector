@@ -17,6 +17,7 @@
 
 /* This connector's header */
 #include "parallax_vol_connector.h"
+#include "parallax_vol_attribute.h"
 #include "parallax_vol_dataset.h"
 #include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
@@ -93,14 +94,14 @@ static const H5VL_class_t template_class_g = {
 	},
 	{
 		/* attribute_cls */
-		NULL, /* create       */
-		NULL, /* open         */
-		NULL, /* read         */
-		NULL, /* write        */
-		NULL, /* get          */
-		NULL, /* specific     */
-		NULL, /* optional     */
-		NULL /* close        */
+		parh5A_create, /* create       */
+		parh5A_open, /* open         */
+		parh5A_read, /* read         */
+		parh5A_write, /* write        */
+		parh5A_get, /* get          */
+		parh5A_specific, /* specific     */
+		parh5A_optional, /* optional     */
+		parh5A_close /* close        */
 	},
 	{
 		/* dataset_cls */

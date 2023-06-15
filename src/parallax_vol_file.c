@@ -21,7 +21,7 @@
 typedef struct parh5G_group *parh5G_group_t;
 
 struct parh5F_file {
-	parh5_object_e obj_type;
+	H5I_type_t obj_type;
 	const char *name;
 	parh5G_group_t root_group;
 	par_handle db;
@@ -68,7 +68,7 @@ static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initiali
 		_exit(EXIT_FAILURE);
 	}
 	file->name = strdup(file_name);
-	file->obj_type = PARH5_FILE;
+	file->obj_type = H5I_FILE;
 
 	/*Check it the root inode exists*/
 	parh5I_inode_t root_inode = parh5I_get_inode(file->db, 1);
@@ -169,9 +169,9 @@ static const char *parh5F_type_to_string(int type)
 
 herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void **req)
 {
-	parh5_object_e *obj_type = (parh5_object_e *)obj;
+	H5I_type_t *obj_type = (H5I_type_t *)obj;
 
-	if (PARH5_FILE != *obj_type) {
+	if (H5I_FILE != *obj_type) {
 		log_fatal("Object should be a file");
 		_exit(EXIT_FAILURE);
 	}
@@ -254,8 +254,8 @@ herr_t parh5F_specific(void *obj, H5VL_file_specific_args_t *file_query, hid_t d
 {
 	(void)dxpl_id;
 	(void)req;
-	parh5_object_e *obj_type = obj;
-	if (obj && *obj_type != PARH5_FILE) {
+	H5I_type_t *obj_type = obj;
+	if (obj && *obj_type != H5I_FILE) {
 		log_fatal("Object is not a file!");
 		_exit(EXIT_FAILURE);
 	}
