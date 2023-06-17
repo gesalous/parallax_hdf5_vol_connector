@@ -3,7 +3,7 @@
 #include "H5Spublic.h"
 #include "H5Tpublic.h"
 #include "H5public.h"
-#include "djb2.h"
+#include "murmurhash.h"
 #include "parallax_vol_connector.h"
 #include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
@@ -27,8 +27,13 @@
 		_exit(EXIT_FAILURE);                              \
 	}
 
+struct parh5D_tile_uuid {
+	uint64_t dset_id;
+	uint64_t tile_id;
+} __attribute((packed));
+
 struct parh5D_tile {
-	uint64_t uuid;
+	struct parh5D_tile_uuid uuid;
 	hid_t mem_type;
 	uint32_t size_in_bytes; /*in bytes*/
 	char *tile_buffer;
@@ -44,7 +49,7 @@ struct parh5D_tile_cursor {
 	struct parh5D_tile tile;
 	parh5D_dataset_t dataset;
 	hid_t memtype;
-	void *mem_buf; /*applications in memory array*/
+	char *mem_buf; /*applications in memory array*/
 	int nelems; /* of the in memory array*/
 	int mem_elem_id; /*id of the in-memory array*/
 	int ndims; /* of the storage array*/
@@ -116,10 +121,10 @@ static inline hsize_t parh5D_get_id_from_coords(hsize_t coords[], hsize_t shape[
  * @param [in] element_id the id of the element in the projection of the array in 1D
  * @return the uuid of the tile
  */
-static uint64_t parh5D_create_tile_uuid(uint64_t dset_uuid, uint64_t element_id)
+static struct parh5D_tile_uuid parh5D_create_tile_uuid(uint64_t dset_uuid, uint64_t element_id)
 {
-	uint64_t coords[2] = { dset_uuid, element_id };
-	return djb2_hash((const unsigned char *)coords, sizeof(coords));
+	struct parh5D_tile_uuid uuid = { .dset_id = dset_uuid, .tile_id = element_id };
+	return uuid;
 }
 
 /**
@@ -130,17 +135,17 @@ static uint64_t parh5D_create_tile_uuid(uint64_t dset_uuid, uint64_t element_id)
  * @param [in] tile_size the size of the buffer in bytes
  * @return true if the tile is found otherwise false
  */
-static bool parh5D_fetch_tile(struct parh5D_tile_cursor *cursor, uint64_t tile_uuid, char tile_buffer[],
+static bool parh5D_fetch_tile(struct parh5D_tile_cursor *cursor, struct parh5D_tile_uuid tile_uuid, char tile_buffer[],
 			      size_t tile_size)
 {
-	// log_debug("Fetching tile with uuid: %lu size: %lu", tile_uuid, tile_size);
 	struct par_key par_key = { .size = sizeof(tile_uuid), .data = (char *)&tile_uuid };
 	struct par_value par_value = { .val_buffer = tile_buffer, .val_buffer_size = tile_size };
 	const char *error = NULL;
 	par_get(parh5F_get_parallax_db(cursor->dataset->file), &par_key, &par_value, &error);
-	assert(par_value.val_buffer == NULL || par_value.val_size == tile_size);
+
 	if (error)
-		log_debug("Tile with uuid: %lu does not exist", tile_uuid);
+		log_debug("Tile with dset id: %lu elem_id: %lu does not exist", tile_uuid.dset_id, tile_uuid.tile_id);
+	assert(par_value.val_size == tile_size);
 	return NULL == error ? true : false;
 }
 /**
@@ -153,15 +158,15 @@ static bool parh5D_fetch_tile(struct parh5D_tile_cursor *cursor, uint64_t tile_u
  * @param [in] size (in bytes) of how much data to transfer in the partia_buffer
  * @return true on success otherwise false if the tile is not found
  */
-static bool parh5D_fetch_partial_tile(struct parh5D_tile_cursor *cursor, uint64_t tile_uuid, char partial_buffer[],
-				      int tile_offt, int partial_buffer_start, int size)
+static bool parh5D_fetch_partial_tile(struct parh5D_tile_cursor *cursor, struct parh5D_tile_uuid tile_uuid,
+				      char partial_buffer[], int tile_offt, int partial_buffer_start, int size)
 {
 	struct par_key par_key = { .size = sizeof(tile_uuid), .data = (char *)&tile_uuid };
 	struct par_value par_value = { 0 };
 	const char *error = NULL;
 	par_get(parh5F_get_parallax_db(cursor->dataset->file), &par_key, &par_value, &error);
 	if (error) {
-		log_debug("Tile with uuid: %lu does not exist", tile_uuid);
+		log_debug("Tile with dset uuid: %lu tile id: %lu does not exist", tile_uuid.dset_id, tile_uuid.tile_id);
 		return false;
 	}
 	memcpy(&partial_buffer[partial_buffer_start], &par_value.val_buffer[tile_offt], size);
@@ -175,7 +180,8 @@ static bool parh5D_fetch_partial_tile(struct parh5D_tile_cursor *cursor, uint64_
  * @param [in] tile_uuid the uuid of the tile to fetch
  * @param [in] tile_size in bytes
  */
-static void parh5D_write_tile(parh5D_dataset_t dataset, uint64_t tile_uuid, char buffer[], size_t tile_size)
+static void parh5D_write_tile(parh5D_dataset_t dataset, struct parh5D_tile_uuid tile_uuid, char buffer[],
+			      size_t tile_size)
 {
 	//Sorry misalinged access need to fetch it
 	struct par_key par_key = { .size = sizeof(tile_uuid), .data = (char *)&tile_uuid };
@@ -184,8 +190,8 @@ static void parh5D_write_tile(parh5D_dataset_t dataset, uint64_t tile_uuid, char
 	struct par_key_value KV = { .k = par_key, .v = par_value };
 	par_put(parh5F_get_parallax_db(dataset->file), &KV, &error);
 	if (error) {
-		log_debug("Failed to write tile with uuid: %lu reason: %s tile size is %lu", tile_uuid, error,
-			  tile_size);
+		log_fatal("Failed to write tile with dset_id: %lu tile_id: %lu reason: %s tile size is %lu",
+			  tile_uuid.dset_id, tile_uuid.tile_id, error, tile_size);
 		_exit(EXIT_FAILURE);
 	}
 }
@@ -246,9 +252,12 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 	cursor->tile.size_in_bytes = H5Tget_size(cursor->memtype) * PARH5D_TILE_SIZE_IN_ELEMS;
 	cursor->mem_elem_id = PARH5D_TILE_SIZE_IN_ELEMS;
 
+	log_debug("Tile id %u size in bytes: %u", storage_tile_id, cursor->tile.size_in_bytes);
+
 	if (PARH5D_READ_CURSOR == cursor->cursor_type && storage_tile_id == storage_elem_id) {
 		if (!parh5D_fetch_tile(cursor, cursor->tile.uuid, mem, cursor->tile.size_in_bytes)) {
-			log_fatal("Tile with uuid %lu does not exist! (It should)", cursor->tile.uuid);
+			log_fatal("Tile with dset uuid: %lu tile id: %lu does not exist! (It should)",
+				  cursor->tile.uuid.dset_id, cursor->tile.uuid.tile_id);
 			_exit(EXIT_FAILURE);
 		}
 		return cursor;
@@ -259,7 +268,8 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 		int size = H5Tget_size(cursor->memtype) *
 			   (PARH5D_TILE_SIZE_IN_ELEMS - storage_tile_id % PARH5D_TILE_SIZE_IN_ELEMS);
 		if (!parh5D_fetch_partial_tile(cursor, cursor->tile.uuid, cursor->mem_buf, offt_in_tile, 0, size)) {
-			log_fatal("Tile with uuid %lu does not exist! (It should)", cursor->tile.uuid);
+			log_fatal("Tile with dset_id %lu tile_id: %lu does not exist! (It should)",
+				  cursor->tile.uuid.dset_id, cursor->tile.uuid.tile_id);
 			_exit(EXIT_FAILURE);
 		}
 		cursor->tile.size_in_bytes = size;
@@ -311,7 +321,7 @@ static void parh5D_free_tile_buffer(struct parh5D_tile *tile)
 static bool parh5D_advance_tile_cursor(struct parh5D_tile_cursor *cursor)
 {
 	if (cursor->mem_elem_id >= cursor->nelems) {
-		log_debug("End of cursor");
+		log_debug("End of cursor mem_elem_id: %u total_elems: %u", cursor->mem_elem_id, cursor->nelems);
 		return false;
 	}
 
@@ -322,12 +332,13 @@ static bool parh5D_advance_tile_cursor(struct parh5D_tile_cursor *cursor)
 		_exit(EXIT_FAILURE);
 	}
 	uint32_t storage_elem_id = parh5D_get_id_from_coords(coords, cursor->shape, cursor->ndims);
-	uint64_t uuid = cursor->tile.uuid;
+	// log_debug("Fetching tile: %u", storage_elem_id);
 	cursor->tile.uuid = parh5D_create_tile_uuid(parh5I_get_inode_num(cursor->dataset->inode), storage_elem_id);
-	assert(uuid != cursor->tile.uuid);
 	parh5D_free_tile_buffer(&cursor->tile);
 
-	cursor->tile.tile_buffer = (char *)cursor->mem_buf + cursor->mem_elem_id * H5Tget_size(cursor->memtype);
+	// log_debug("Reposition tile buffer to %u mem elem id", cursor->mem_elem_id);
+	cursor->tile.tile_buffer =
+		(char *)((uint64_t)cursor->mem_buf + cursor->mem_elem_id * H5Tget_size(cursor->memtype));
 	uint32_t remaining_in_mem_buffer = cursor->nelems - cursor->mem_elem_id;
 
 	if (remaining_in_mem_buffer >= PARH5D_TILE_SIZE_IN_ELEMS) {
@@ -838,6 +849,7 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 	parh5D_dataset_t dataset = dset;
 	//Don't worry about space, type, and dcpl. HDF5 knows about their existence
 	//since it has asked the plugin during open and cleans them up itself
+
 	log_debug("Closing dataset %s SUCCESS", parh5I_get_inode_name(dataset->inode));
 	free(dataset->inode);
 	free(dataset);
