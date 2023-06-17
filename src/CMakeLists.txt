@@ -42,7 +42,9 @@ add_library(
 target_link_libraries(${PARH5_VOL_LIB} log parallax)
 if(USE_ADDR_SANITIZER)
   target_link_libraries(${PARH5_VOL_LIB} log parallax asan)
-else()
+else() # Conditionally define DISABLE_LOGGING for the library
+  target_compile_definitions(${PARH5_VOL_LIB}
+                             PRIVATE $<$<CONFIG:Release>:PARH5_DISABLE_LOGGING>)
   target_link_libraries(${PARH5_VOL_LIB} log parallax)
 endif()
 
