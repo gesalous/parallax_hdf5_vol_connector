@@ -16,7 +16,8 @@ set(PARH5_VOL_C_SOURCE_FILES
     parallax_vol_introspect.c
     parallax_vol_dataset.c
     parallax_vol_inode.c
-    parallax_vol_attribute.c)
+    parallax_vol_attribute.c
+    parallax_vol_links.c)
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   set_source_files_properties(PARH5_VOL_C_SOURCE_FILES
@@ -37,7 +38,8 @@ add_library(
   parallax_vol_introspect.c
   parallax_vol_dataset.c
   parallax_vol_inode.c
-  parallax_vol_attribute.c)
+  parallax_vol_attribute.c
+  parallax_vol_links.c)
 
 target_link_libraries(${PARH5_VOL_LIB} log parallax)
 if(USE_ADDR_SANITIZER)

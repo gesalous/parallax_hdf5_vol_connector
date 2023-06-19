@@ -22,6 +22,7 @@
 #include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
 #include "parallax_vol_introspect.h"
+#include "parallax_vol_links.h"
 #include "parallax_vol_object.h"
 #include <H5PLextern.h>
 #include <assert.h>
@@ -54,6 +55,10 @@ herr_t parh5_initialize(hid_t vipl_id)
 	(void)vipl_id;
 	connector = calloc(1, sizeof(*connector));
 	pthread_rwlock_init(&connector->file_map_lock, NULL);
+
+#ifdef PARH5_DISABLE_LOGGING
+	log_set_level(LOG_INFO);
+#endif
 	log_debug("Initialized parallax plugin");
 	return 1;
 }
@@ -65,9 +70,8 @@ herr_t parh5_terminate(void)
 	log_debug("Closed parallax plugin");
 	return 1;
 }
-
 /* The VOL class struct */
-static const H5VL_class_t template_class_g = {
+static const H5VL_class_t parallax_class_g = {
 	3, /* VOL class struct version */
 	PARALLAX_VOL_CONNECTOR_VALUE, /* value                    */
 	PARALLAX_VOL_CONNECTOR_NAME, /* name                     */
@@ -143,12 +147,12 @@ static const H5VL_class_t template_class_g = {
 	},
 	{
 		/* link_cls */
-		NULL, /* create       */
-		NULL, /* copy         */
-		NULL, /* move         */
-		NULL, /* get          */
-		NULL, /* specific     */
-		NULL /* optional     */
+		parh5L_create, /* create       */
+		parh5L_copy, /* copy         */
+		parh5L_move, /* move         */
+		parh5L_get, /* get          */
+		parh5L_specific, /* specific     */
+		parh5L_optional /* optional     */
 	},
 	{
 		/* object_cls */
@@ -199,5 +203,5 @@ H5PL_type_t H5PLget_plugin_type(void)
 }
 const void *H5PLget_plugin_info(void)
 {
-	return &template_class_g;
+	return &parallax_class_g;
 }

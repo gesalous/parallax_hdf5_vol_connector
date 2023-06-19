@@ -35,4 +35,5 @@
 // typedef enum { PARH5_FILE = 1, PARH5_GROUP = 2, PARH5_DATASET = 3 } parh5_object_e;
 
 herr_t parh5_property_list_iterator(hid_t prop_id, const char *name, void *iter_data);
+const void *H5PLget_plugin_info(void);
 #endif /* _parallax_vol_connector_H */

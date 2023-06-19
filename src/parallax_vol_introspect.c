@@ -1,7 +1,12 @@
 #include "parallax_vol_introspect.h"
 #include "parallax_vol_connector.h"
+#include <H5Ipublic.h>
+#include <H5VLconnector.h>
 #include <log.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #define PARH5_OPT_QUERY_OUT_TYPE uint64_t
 #define PARH5_OPT_QUERY_SUPPORTED H5VL_OPT_QUERY_SUPPORTED
@@ -18,9 +23,20 @@ herr_t parh5_get_conn_cls(void *obj, H5VL_get_conn_lvl_t lvl, const struct H5VL_
 	(void)obj;
 	(void)lvl;
 	(void)conn_cls;
-	fprintf(stderr, "PAR_INTROSPECT_class from function: %s, in file: %s, and line: %d\n", __func__, __FILE__,
-		__LINE__);
-	return 1;
+	H5I_type_t *type = obj;
+	if (*type != H5I_FILE) {
+		log_fatal("Currently support only file objects");
+		_exit(EXIT_FAILURE);
+	}
+	log_debug("Return parallax vol plugin callbacks for file? %s conn type: %d", H5I_FILE == *type ? "YES" : "NO",
+		  lvl);
+	struct H5VL_class_t *new_conn = calloc(1UL, sizeof(*new_conn));
+	struct H5VL_class_t *parallax = (struct H5VL_class_t *)H5PLget_plugin_info();
+	memcpy(new_conn, parallax, sizeof(*new_conn));
+	new_conn->name = "native";
+	new_conn->value = 0;
+	*conn_cls = new_conn;
+	return PARH5_SUCCESS;
 }
 
 herr_t parh5_get_cap_flags(const void *info, uint64_t *cap_flags)
