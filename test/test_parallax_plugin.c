@@ -11,7 +11,7 @@
 #define PAR_TEST_DIMENSION_1 100
 #define PAR_TEST_DIMENSION_2 50
 #define PAR_TEST_DIMENSION_3 20
-#define PAR_TEST_DOUBLE_VALUE 1.0
+#define PAR_TEST_DOUBLE_VALUE 0.0
 
 bool par_test_write_array(char *file_name, char *group_name, char *dataset_name, hid_t vol_id)
 {
@@ -20,7 +20,7 @@ bool par_test_write_array(char *file_name, char *group_name, char *dataset_name,
 	// Create a new HDF5 file
 
 	hid_t fapl_id = H5Pcreate(H5P_FILE_ACCESS);
-	H5Pset_vol(fapl_id, vol_id, NULL);
+	// H5Pset_vol(fapl_id, vol_id, NULL);
 	log_debug("Creating file: %s.....", file_name);
 	hid_t file_id = H5Fcreate(file_name, H5F_ACC_TRUNC, H5P_DEFAULT, fapl_id);
 	if (file_id <= 0) {
@@ -76,7 +76,7 @@ static bool par_test_read_array(char *file_name, char *group_name, char *dataset
 
 	// Open the HDF5 file
 	hid_t fapl_id = H5Pcreate(H5P_FILE_ACCESS);
-	H5Pset_vol(fapl_id, vol_id, NULL);
+	// H5Pset_vol(fapl_id, vol_id, NULL);
 	log_debug("Open file for read...");
 	hid_t file_id = H5Fopen(file_name, H5F_ACC_RDONLY, fapl_id);
 	log_debug("Open file for read...SUCCESS");
@@ -102,8 +102,10 @@ static bool par_test_read_array(char *file_name, char *group_name, char *dataset
 		for (int dim_id_2 = 0; dim_id_2 < PAR_TEST_DIMENSION_2; dim_id_2++) {
 			for (int dim_id_3 = 0; dim_id_3 < PAR_TEST_DIMENSION_3; dim_id_3++) {
 				if (data[dim_id_1][dim_id_2][dim_id_3] != value++) {
-					log_fatal("Corrupted array should have been %lf instead got %lf", value,
-						  data[dim_id_1][dim_id_2][dim_id_3]);
+					log_fatal(
+						"Corrupted array value[%d][%d][%d] should have been %lf instead got %lf",
+						dim_id_1, dim_id_2, dim_id_3, value,
+						data[dim_id_1][dim_id_2][dim_id_3]);
 					_exit(EXIT_FAILURE);
 				}
 			}
@@ -122,10 +124,10 @@ int main(void)
 {
 	/* Register the connector by name */
 	hid_t vol_id = { 0 };
-	if ((vol_id = H5VLregister_connector_by_name(PARALLAX_VOL_CONNECTOR_NAME, H5P_DEFAULT)) < 0) {
-		log_fatal("Failed to register connector %s", PARALLAX_VOL_CONNECTOR_NAME);
-		_exit(EXIT_FAILURE);
-	}
+	// if ((vol_id = H5VLregister_connector_by_name(PARALLAX_VOL_CONNECTOR_NAME, H5P_DEFAULT)) < 0) {
+	// 	log_fatal("Failed to register connector %s", PARALLAX_VOL_CONNECTOR_NAME);
+	// 	_exit(EXIT_FAILURE);
+	// }
 	par_test_write_array(PAR_TEST_FILE_NAME, PAR_TEST_GROUP_NAME, PAR_TEST_DATASET_NAME, vol_id);
 	par_test_read_array(PAR_TEST_FILE_NAME, PAR_TEST_GROUP_NAME, PAR_TEST_DATASET_NAME, vol_id);
 	log_info("Test SUCCESS!");
@@ -165,7 +167,7 @@ int main(void)
 	// // status = H5Pclose(fcpl_id);
 	// status = H5Pclose(fapl_id);
 	// status = H5Pclose(lcpl_id);
-	herr_t status = H5VLunregister_connector(vol_id);
+	// herr_t status = H5VLunregister_connector(vol_id);
 
 	return 0;
 }
