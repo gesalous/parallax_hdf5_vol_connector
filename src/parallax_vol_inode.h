@@ -4,8 +4,6 @@
 #include <parallax/parallax.h>
 #include <stdbool.h>
 #include <stdint.h>
-#define PARH5I_INODE_SIZE 512
-#define PARH5I_NAME_SIZE 128
 typedef struct parh5I_inode *parh5I_inode_t;
 typedef struct parh5F_file *parh5F_file_t;
 /**
@@ -45,7 +43,7 @@ parh5I_inode_t parh5I_get_inode(par_handle par_db, uint64_t inode_num);
  * @param [in] pivot the name of the entry to search for
  * @return the inode number of the entry or 0 if not found
  */
-uint64_t parh5I_lsearch_inode(parh5I_inode_t, const char *pivot);
+uint64_t parh5I_lsearch_inode(parh5I_inode_t inode, const char *pivot_name, par_handle par_db);
 
 /**
   * @brief Creates an inode. Caution it does not save it to Parallax
@@ -64,7 +62,7 @@ parh5I_inode_t parh5I_create_inode(const char *name, H5I_type_t type, parh5I_ino
  * @param [in] name the name of the entry
  * @return true on success false on failure (if node is full)
 */
-bool parh5I_add_inode(parh5I_inode_t inode, uint64_t inode_num, const char *name);
+bool parh5I_add_pivot_in_inode(parh5I_inode_t inode, uint64_t inode_num, const char *pivot_name, par_handle par_db);
 
 /**
   * @brief returns the inode number of the inode
@@ -72,16 +70,6 @@ bool parh5I_add_inode(parh5I_inode_t inode, uint64_t inode_num, const char *name
   * @return the inode number on success or 0 on failure
 */
 uint64_t parh5I_get_inode_num(parh5I_inode_t inode);
-
-/**
-  *@brief Returns the buffer and the size inside the inode of the
-  * dataset that is available for writing.
-  * @param [in] inode reference to the inode object
-  * @param [out] size contains the available space
-  * @return the pointer to the buffer on SUCCESS. If the inode is not a
-  * dataset method fails and returns NULL.
-*/
-char *parh5I_get_inode_buf(parh5I_inode_t inode, uint32_t *size);
 
 /**
   * @brief Searches a path in the form of group1/.../groupN and returns the inode num
@@ -99,5 +87,9 @@ uint64_t parh5I_path_search(parh5I_inode_t inode, const char *path_search, par_h
 */
 uint64_t parh5I_get_obj_count(parh5I_inode_t root_inode);
 
+bool parh5I_is_root_inode(parh5I_inode_t inode);
+
 void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *objs, parh5F_file_t file);
+size_t parh5I_get_inode_metadata_size(void);
+char *parh5I_get_inode_metadata_buf(parh5I_inode_t inode);
 #endif

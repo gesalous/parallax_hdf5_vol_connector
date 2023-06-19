@@ -38,8 +38,10 @@ par_handle parh5G_get_parallax_db(parh5G_group_t group);
  * not saved in Parallax.
  * @param [in] file reference to the file object
  * @param [in] name the name of the file
+ * @param access_pl_id [in] reference to the access property list for this group/file
+ * @param create_pl_id [in] reference to the create property list for this group/file
  */
-parh5G_group_t parh5G_create_group(parh5F_file_t file, const char *name);
+parh5G_group_t parh5G_create_group(parh5F_file_t file, const char *name, hid_t access_pl_id, hid_t create_pl_id);
 
 /**
   * @brief Returns the inode associated with this group object.
@@ -64,4 +66,8 @@ parh5G_group_t parh5G_open_group(parh5F_file_t file, parh5I_inode_t inode);
 parh5I_inode_t parh5G_get_root_inode(parh5G_group_t group);
 
 parh5F_file_t parh5G_get_file(parh5G_group_t group);
+
+hid_t parh5G_get_cpl(parh5G_group_t group);
+
+hid_t parh5G_get_apl(parh5G_group_t group);
 #endif

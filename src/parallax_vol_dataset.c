@@ -380,9 +380,8 @@ static void parh5D_close_cursor(struct parh5D_tile_cursor *cursor)
 static bool parh5D_store_dataset(parh5D_dataset_t dset)
 {
 	size_t idx = 0;
-	uint32_t buffer_size = 0;
-	char *buffer = parh5I_get_inode_buf(dset->inode, &buffer_size);
-	size_t remaining_bytes = buffer_size;
+	char *buffer = parh5I_get_inode_metadata_buf(dset->inode);
+	size_t remaining_bytes = parh5I_get_inode_metadata_size();
 	idx = 0;
 	//Dataset's space_id
 	size_t space_needed = 0;
@@ -431,8 +430,7 @@ static bool parh5D_store_dataset(parh5D_dataset_t dset)
  */
 static void parh5D_deserialize_dataset(parh5D_dataset_t dataset)
 {
-	uint32_t inode_size = 0;
-	char *buffer = parh5I_get_inode_buf(dataset->inode, &inode_size);
+	char *buffer = parh5I_get_inode_metadata_buf(dataset->inode);
 	uint32_t idx = 0;
 	//get the space id
 	dataset->space_id = H5Sdecode(&buffer[idx]);
@@ -512,7 +510,8 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	dataset->file = parh5G_get_file(parent_group);
 	dataset->space_id = H5Scopy(space_id);
 	parh5D_store_dataset(dataset);
-	parh5I_add_inode(parh5G_get_inode(parent_group), parh5I_get_inode_num(dataset->inode), name);
+	parh5I_add_pivot_in_inode(parh5G_get_inode(parent_group), parh5I_get_inode_num(dataset->inode), name,
+				  parh5G_get_parallax_db(parent_group));
 	parh5I_store_inode(parh5G_get_inode(parent_group), parh5G_get_parallax_db(parent_group));
 
 	log_debug("Dimensions of new dataspace are %d", H5Sget_simple_extent_ndims(dataset->space_id));

@@ -14,6 +14,7 @@
 #include <hdf5.h>
 #include <log.h>
 #include <parallax/parallax.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,22 @@ struct parh5F_file {
 	parh5G_group_t root_group;
 	par_handle db;
 };
+
+static hid_t parh5F_get_fcpl(parh5F_file_t file)
+{
+	parh5G_group_t root_group = parh5F_get_root_group(file);
+	hid_t fcpl_id = parh5G_get_cpl(root_group);
+	if (fcpl_id < 0) {
+		log_fatal("Could not retrieve fcpl for file: %s", parh5F_get_file_name(file));
+		_exit(EXIT_FAILURE);
+	}
+	hid_t cpl = H5Pcopy(fcpl_id);
+	if (cpl < 0) {
+		log_fatal("Failed to copy cpl for file: %s", parh5F_get_file_name(file));
+		_exit(EXIT_FAILURE);
+	}
+	return cpl;
+}
 
 parh5G_group_t parh5F_get_root_group(parh5F_file_t file)
 {
@@ -47,7 +64,8 @@ inline par_handle parh5F_get_parallax_db(parh5F_file_t file)
 	return file ? file->db : NULL;
 }
 
-static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initializers open_flag)
+static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initializers open_flag, hid_t fapl_id,
+				     hid_t fcpl_id)
 {
 	par_db_options db_options = { .volume_name = PARALLAX_VOLUME,
 				      .create_flag = open_flag,
@@ -59,6 +77,7 @@ static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initiali
 
 	parh5F_file_t file = calloc(1UL, sizeof(struct parh5F_file));
 	const char *error_message = NULL;
+	file->obj_type = H5I_FILE;
 	file->db = par_open(&db_options, &error_message);
 	if (error_message)
 		log_debug("Parallax says: %s", error_message);
@@ -68,7 +87,6 @@ static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initiali
 		_exit(EXIT_FAILURE);
 	}
 	file->name = strdup(file_name);
-	file->obj_type = H5I_FILE;
 
 	/*Check it the root inode exists*/
 	parh5I_inode_t root_inode = parh5I_get_inode(file->db, 1);
@@ -77,8 +95,13 @@ static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initiali
 		log_debug("Opened root group for file: %s", file_name);
 		return file;
 	}
+	if (0 == fcpl_id)
+		fcpl_id = H5Pcreate(H5P_FILE_CREATE);
 
-	file->root_group = parh5G_create_group(file, "-ROOT-");
+	if (0 == fapl_id)
+		fcpl_id = H5Pcreate(H5P_FILE_ACCESS);
+
+	file->root_group = parh5G_create_group(file, "-ROOT-", fapl_id, fcpl_id);
 	log_debug("Created root group for file: %s", file_name);
 	return file;
 }
@@ -129,7 +152,8 @@ void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_
 		"creating new file: %s flags %s Does it want a POSIX FD?: %s Does it want to use file locking? %s Does it want to ignore disabled file locks? %s",
 		name, parh5F_flags2s(flags), want_posix_fd ? yes : no, use_file_locking ? yes : no,
 		ignore_disabled_file_locks ? yes : no);
-	return parh5F_new_file(name, PAR_CREATE_DB);
+	raise(SIGINT);
+	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, fcpl_id);
 }
 
 void *parh5F_open(const char *name, unsigned flags, hid_t fapl_id, hid_t dxpl_id, void **req)
@@ -141,7 +165,7 @@ void *parh5F_open(const char *name, unsigned flags, hid_t fapl_id, hid_t dxpl_id
 	(void)req;
 
 	log_debug("Opening file name: %s flags %s", name, parh5F_flags2s(flags));
-	return parh5F_new_file(name, PAR_CREATE_DB);
+	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, 0);
 }
 
 static const char *parh5F_type_to_string(int type)
@@ -183,9 +207,10 @@ herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void *
 	case H5VL_FILE_GET_FAPL:
 		log_debug("H5VL_FILE_GET_FAPL");
 		break;
-	case H5VL_FILE_GET_FCPL:
+	case H5VL_FILE_GET_FCPL:;
 		log_debug("H5VL_GET_FCPL");
-		break;
+		fquery->args.get_fcpl.fcpl_id = parh5F_get_fcpl(file);
+		return PARH5_SUCCESS;
 	case H5VL_FILE_GET_FILENO:
 		log_debug("H5VL_FILE_GET_FILENO");
 		break;
@@ -209,19 +234,21 @@ herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void *
 		*fquery->args.get_name.file_name_len = strlen(file->name) + 1;
 		return PARH5_SUCCESS;
 	case H5VL_FILE_GET_OBJ_COUNT:;
-		log_debug("H5VL_FILE_GET_OBJ_COUNT Counting all ommiting types to count... XXX TODO XXX");
+		log_debug("H5VL_FILE_GET_OBJ_COUNT for file: %s ommiting types to count... XXX TODO XXX", file->name);
 		parh5G_group_t root_group = parh5F_get_root_group(file);
 		parh5I_inode_t inode = parh5G_get_inode(root_group);
 		*fquery->args.get_obj_count.count = parh5I_get_obj_count(inode);
 
 		log_debug("types are %s count is %lu", parh5F_type_to_string(fquery->args.get_obj_count.types),
 			  *fquery->args.get_obj_count.count);
+		// raise(SIGINT);
 		return PARH5_SUCCESS;
 	case H5VL_FILE_GET_OBJ_IDS:
-		log_debug("H5VL_FILE_GET_OBJ_IDS");
+		log_debug("H5VL_FILE_GET_OBJ_IDS for file: %s", file->name);
 		parh5G_group_t root = parh5F_get_root_group(file);
 		*fquery->args.get_obj_ids.count = 0;
 		parh5I_get_all_objects(parh5G_get_inode(root), &fquery->args.get_obj_ids, file);
+		log_debug("Total objects are %lu", *fquery->args.get_obj_ids.count);
 		return PARH5_SUCCESS;
 	default:
 		log_fatal("Unknown option");
@@ -305,16 +332,21 @@ herr_t(parh5F_optional)(void *obj, H5VL_optional_args_t *args, hid_t dxpl_id, vo
 
 herr_t parh5F_close(void *file, hid_t dxpl_id, void **req)
 {
-	(void)file;
 	(void)dxpl_id;
 	(void)req;
-	parh5F_file_t par_file = file;
-	log_debug("Closing file: %s", par_file->name);
-	if (!par_file) {
-		log_fatal("NULL file to close?");
+	H5I_type_t *type = file;
+	if (H5I_FILE != *type) {
+		log_fatal("Not a file to close");
 		_exit(EXIT_FAILURE);
 	}
-	parh5F_close_parallax_db((parh5F_file_t)file);
+	parh5F_file_t par_file = file;
+	log_debug("Closing file: %s", par_file->name);
+	parh5F_close_parallax_db(file);
+	parh5G_group_t root_group = parh5F_get_root_group(file);
+	parh5G_close(root_group, 0, NULL);
+	log_debug("Closing file: %s....SUCCESS", par_file->name);
+	free((char *)par_file->name);
+	free(par_file);
 
-	return 1;
+	return PARH5_SUCCESS;
 }

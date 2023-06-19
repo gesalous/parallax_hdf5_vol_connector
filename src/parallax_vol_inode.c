@@ -1,4 +1,5 @@
 #include "parallax_vol_inode.h"
+#include "parallax/parallax.h"
 #include "parallax/structures.h"
 #include "parallax_vol_connector.h"
 #include "parallax_vol_dataset.h"
@@ -11,41 +12,82 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#define PARH5I_INODE_SIZE sizeof(struct parh5I_inode)
 #define PARH5I_NAME_SIZE 128
+#define PARH5I_GROUP_METADATA_BUFFER_SIZE 3096
 #define PARH5I_KEY_SIZE 9
 #define PARH5I_INODE_KEY_PREFIX 'I'
+#define PARH5I_PIVOT_KEY_PREFIX 'P'
 typedef struct parh5D_dataset *parh5D_dataset_t;
 
-struct parh5I_slot_entry {
+struct parh5I_pivot {
 	uint64_t inode_num;
-	uint32_t offset; /*where the full name is actually*/
 } __attribute((packed));
 
 struct parh5I_inode {
 	H5I_type_t type; /*group or dataset*/
 	char name[PARH5I_NAME_SIZE];
+	char metadata[PARH5I_GROUP_METADATA_BUFFER_SIZE]; /*acpl and cpl lists kept serialized here*/
 	uint64_t inode_num;
 	uint64_t counter;
-	uint32_t size;
-	uint32_t used;
-	uint32_t n_items;
-	struct parh5I_slot_entry slot_array[];
+	uint32_t pivot_size;
+	uint32_t num_pivots;
 } __attribute((packed));
 
-// static void parh5I_print_inode(parh5I_inode_t inode)
-// {
-// 	log_debug("Inode name: %s", inode->name);
-// 	log_debug("Inode size: %u", inode->size);
-// 	log_debug("Inode used: %u", inode->used);
-// 	log_debug("Inode number: %lu", inode->inode_num);
-// 	log_debug("Inode nitems: %u", inode->n_items);
-// 	log_debug("Inode type: %d", inode->type);
-// }
+static void parh5I_print_inode(parh5I_inode_t inode)
+{
+	log_debug("Inode name: %s", inode->name);
+	log_debug("Inode number: %lu", inode->inode_num);
+	log_debug("Inode type: %d", inode->type);
+}
+
+static bool parh5I_construct_pivot_key(const char *pivot_name, parh5I_inode_t inode, char *key_buffer,
+				       size_t *key_buffer_size)
+{
+	static_assert(1 == 1UL, "pivot prefix must be one char");
+	uint32_t needed_space = 1UL + sizeof(inode->inode_num) + strlen(pivot_name) + 1UL;
+	if (needed_space > *key_buffer_size) {
+		log_fatal("Key buffer too small needs %u B got :%lu B", needed_space, *key_buffer_size);
+		_exit(EXIT_FAILURE);
+	}
+	int idx = 0;
+	key_buffer[idx] = PARH5I_PIVOT_KEY_PREFIX;
+	idx += 1UL;
+	memcpy(&key_buffer[idx], &inode->inode_num, sizeof(inode->inode_num));
+	idx += sizeof(inode->inode_num);
+	memcpy(&key_buffer[idx], pivot_name, strlen(pivot_name) + 1);
+
+	*key_buffer_size = needed_space;
+	return true;
+}
+
+char *parh5I_get_inode_metadata_buf(parh5I_inode_t inode)
+{
+	return inode ? inode->metadata : NULL;
+}
+
+size_t parh5I_get_inode_metadata_size(void)
+{
+	return PARH5I_GROUP_METADATA_BUFFER_SIZE;
+}
+
+bool parh5I_is_root_inode(parh5I_inode_t inode)
+{
+	return inode ? inode->inode_num == 0 : false;
+}
+
+static bool parh5I_check_prefix(const char *prefix, size_t prefix_len, const char *key, size_t key_len)
+{
+	if (prefix_len > key_len)
+		return false;
+	return memcmp(prefix, key, prefix_len) == 0;
+}
 
 void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *objs, parh5F_file_t file)
 {
+	static_assert(PARH5I_INODE_SIZE > PARH5I_NAME_SIZE + PARH5I_GROUP_METADATA_BUFFER_SIZE, "INODE size too small");
 	par_handle par_db = parh5F_get_parallax_db(file);
-	log_debug("Inode: %s", inode->name);
+	log_debug("Searching Inode: %s with inode num: %lu", inode->name, inode->inode_num);
 	if (inode->type != H5I_GROUP && inode->type != H5I_DATASET) {
 		log_fatal("Corrupted inode");
 		_exit(EXIT_FAILURE);
@@ -58,11 +100,38 @@ void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *
 		return;
 	}
 	parh5G_group_t self_group = parh5G_open_group(file, inode);
-	// Recursive call for directories
-	for (uint32_t i = 0; i < inode->n_items; i++) {
-		parh5I_inode_t child_inode = parh5I_get_inode(par_db, inode->slot_array[i].inode_num);
-		parh5I_get_all_objects(child_inode, objs, file);
+	char start_key_buffer[1UL + sizeof(inode->inode_num)] = { PARH5I_PIVOT_KEY_PREFIX };
+	memcpy(&start_key_buffer[1UL], &inode->inode_num, sizeof(inode->inode_num));
+	const char *error = NULL;
+	struct par_key start_key = { .size = sizeof(start_key_buffer), .data = start_key_buffer };
+	par_scanner scanner = par_init_scanner(par_db, &start_key, PAR_GREATER, &error);
+	if (error) {
+		log_fatal("Failed to init scanner reason: %s", error);
+		_exit(EXIT_FAILURE);
 	}
+	while (par_is_valid(scanner)) {
+		struct par_key pivot_key = par_get_key(scanner);
+		struct par_value pivot_value = par_get_value(scanner);
+		if (!parh5I_check_prefix(start_key_buffer, sizeof(start_key_buffer), pivot_key.data, pivot_key.size))
+			break;
+		struct parh5I_pivot *pivot = (struct parh5I_pivot *)pivot_value.val_buffer;
+		log_debug("--->Got key: %.*s of size: %u from inode: %s inode_num is: %lu ", pivot_key.size,
+			  pivot_key.data, pivot_key.size, inode->name, pivot->inode_num);
+		parh5I_inode_t child_inode = parh5I_get_inode(par_db, pivot->inode_num);
+		log_debug("--->Fetched child inode: %s", child_inode->name);
+		parh5I_get_all_objects(child_inode, objs, file);
+		par_get_next(scanner);
+	}
+	par_close_scanner(scanner);
+	if (error) {
+		log_fatal("Failed to close scanner");
+		_exit(EXIT_FAILURE);
+	}
+	// // Recursive call for directories
+	// for (uint32_t i = 0; i < inode->num_pivots; i++) {
+	// 	parh5I_inode_t child_inode = parh5I_get_inode(par_db, inode->slot_array[i].inode_num);
+	// 	parh5I_get_all_objects(child_inode, objs, file);
+	// }
 
 	if (*objs->count >= objs->max_objs) {
 		log_fatal("Overflow! objs_count is %ld max objs %ld", *objs->count, objs->max_objs);
@@ -104,7 +173,7 @@ uint64_t parh5I_path_search(parh5I_inode_t inode, const char *path_search, par_h
 
 	token = strtok(str, delimiter);
 	while (token != NULL) {
-		inode_num = parh5I_lsearch_inode(curr_inode, token);
+		inode_num = parh5I_lsearch_inode(curr_inode, token, par_db);
 		// log_debug("Searching: %s at inode: %s got inode num: %lu\n", token, curr_inode->name, inode_num);
 		if (inode != curr_inode)
 			free(curr_inode);
@@ -122,43 +191,48 @@ uint64_t parh5I_path_search(parh5I_inode_t inode, const char *path_search, par_h
 	return inode_num;
 }
 
-uint64_t parh5I_lsearch_inode(parh5I_inode_t inode, const char *pivot)
+uint64_t parh5I_lsearch_inode(parh5I_inode_t inode, const char *pivot_name, par_handle par_db)
 {
 	if (NULL == inode)
 		return 0;
-
-	struct parh5I_slot_entry *slot_array = inode->slot_array;
-	char *buffer = (char *)inode;
-	for (uint32_t i = 0; i < inode->n_items; i++) {
-		char *index_string = &buffer[slot_array[i].offset];
-		// log_debug("offset to examine: %u string %s:%lu with pivot %s:%lu", slot_array[i].offset, index_string,
-		// 	  strlen(index_string), pivot, strlen(pivot));
-		if (0 == strcmp(index_string, pivot))
-			return slot_array[i].inode_num;
+	char key_buffer[1UL + sizeof(inode->inode_num) + PARH5I_NAME_SIZE];
+	size_t key_buffer_size = sizeof(key_buffer);
+	parh5I_construct_pivot_key(pivot_name, inode, key_buffer, &key_buffer_size);
+	struct par_key par_key = { .size = key_buffer_size, .data = key_buffer };
+	char value_buf[64] = { 0 };
+	struct par_value par_value = { .val_buffer_size = sizeof(value_buf), .val_buffer = value_buf };
+	const char *error = NULL;
+	par_get(par_db, &par_key, &par_value, &error);
+	if (error) {
+		log_debug("Could not find key: %.*s of size: %lu pivot: %s reason: %s", par_key.size, par_key.data,
+			  key_buffer_size, pivot_name, error);
+		return 0;
 	}
-	return 0;
+	struct parh5I_pivot *pivot = (struct parh5I_pivot *)value_buf;
+	return pivot->inode_num;
 }
 
-bool parh5I_add_inode(parh5I_inode_t inode, uint64_t inode_num, const char *pivot)
+bool parh5I_add_pivot_in_inode(parh5I_inode_t inode, uint64_t inode_num, const char *pivot_name, par_handle par_db)
 {
-	char *buffer = (char *)inode;
-	uint32_t pivot_size = strlen(pivot) + 1;
-	uint32_t roffset = inode->size - (inode->used + pivot_size);
-	// log_debug("space_needed: %u offset to append is: %u inode size: %u nitems: %u", space_needed, offset,
-	// 	  inode->size, inode->n_items);
+	char key_buffer[1UL + sizeof(inode->inode_num) + PARH5I_NAME_SIZE];
+	size_t key_buffer_size = sizeof(key_buffer);
+	parh5I_construct_pivot_key(pivot_name, inode, key_buffer, &key_buffer_size);
+	struct parh5I_pivot pivot = { .inode_num = inode_num };
 
-	uint32_t loffset = sizeof(struct parh5I_inode) + ((inode->n_items + 1) * sizeof(struct parh5I_slot_entry));
-	log_debug("loffset: %u roffset: %u", loffset, roffset);
-	if ((uint64_t)&buffer[loffset] > (uint64_t)&buffer[roffset])
-		return false;
+	struct par_key par_key = { .size = key_buffer_size, .data = key_buffer };
 
-	memcpy(&buffer[roffset], pivot, pivot_size);
-	inode->slot_array[inode->n_items].offset = roffset;
-	inode->slot_array[inode->n_items].inode_num = inode_num;
-	inode->used += pivot_size;
-	inode->n_items++;
-	log_debug("Added inode name:%s number: %lu", pivot, inode_num);
+	struct par_value new_par_value = { .val_size = sizeof(pivot),
+					   .val_buffer_size = sizeof(pivot),
+					   .val_buffer = (char *)&pivot };
+	struct par_key_value KV = { .k = par_key, .v = new_par_value };
+	const char *error = NULL;
+	par_put(par_db, &KV, &error);
 
+	if (error) {
+		log_fatal("Failed to store inode of group %s", inode->name);
+		_exit(EXIT_FAILURE);
+	}
+	log_debug("Added pivot: %s key size is: %lu in inode: %s", pivot_name, key_buffer_size, inode->name);
 	return true;
 }
 
@@ -179,9 +253,9 @@ bool parh5I_store_inode(parh5I_inode_t inode, par_handle par_db)
 		log_fatal("Failed to store inode of group %s", inode->name);
 		_exit(EXIT_FAILURE);
 	}
-	// log_debug("*******<STORED inode>");
-	// parh5I_print_inode(inode);
-	// log_debug("*******</STORED inode>");
+	log_debug("*******<STORED inode>");
+	parh5I_print_inode(inode);
+	log_debug("*******</STORED inode>");
 	return true;
 }
 
@@ -199,11 +273,10 @@ parh5I_inode_t parh5I_get_inode(par_handle par_db, uint64_t inode_num)
 	}
 
 	assert(par_value.val_size == PARH5I_INODE_SIZE);
-	// parh5I_inode_t root_inode = (parh5I_inode_t)par_value.val_buffer;
-	// log_debug("******<INODE Fetched: %s, num: %lu, num_entries:%u>", root_inode->name, root_inode->inode_num,
-	// 	  root_inode->n_items);
-	// parh5I_print_inode(root_inode);
-	// log_debug("******</INODE Fetched: %s with %u entries>", root_inode->name, root_inode->n_items);
+	parh5I_inode_t root_inode = (parh5I_inode_t)par_value.val_buffer;
+	log_debug("******<INODE Fetched: %s, num: %lu>", root_inode->name, root_inode->inode_num);
+	parh5I_print_inode(root_inode);
+	log_debug("******</INODE Fetched: %s>", root_inode->name);
 	return (parh5I_inode_t)par_value.val_buffer;
 }
 
@@ -216,7 +289,7 @@ parh5I_inode_t parh5I_create_inode(const char *name, H5I_type_t type, parh5I_ino
 		_exit(EXIT_FAILURE);
 	}
 	memcpy(inode->name, name, strlen(name));
-	inode->size = PARH5I_INODE_SIZE;
+	inode->pivot_size = 0;
 	inode->type = type;
 
 	assert(root_inode == NULL || 0 == strcmp(root_inode->name, "-ROOT-"));
@@ -239,18 +312,4 @@ const char *parh5I_get_inode_name(parh5I_inode_t inode)
 uint64_t parh5I_get_inode_num(parh5I_inode_t inode)
 {
 	return inode ? inode->inode_num : 0;
-}
-
-char *parh5I_get_inode_buf(parh5I_inode_t inode, uint32_t *size)
-{
-	if (!inode)
-		return NULL;
-
-	if (inode->type != H5I_DATASET) {
-		log_fatal("Operation permittted only for group inodes");
-		_exit(EXIT_FAILURE);
-	}
-
-	*size = PARH5I_INODE_SIZE - sizeof(struct parh5I_inode);
-	return (char *)inode->slot_array;
 }
