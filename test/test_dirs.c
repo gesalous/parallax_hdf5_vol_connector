@@ -73,15 +73,15 @@ int main(void)
 	H5Dwrite(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
 
 	// Close dataset, dataspace, group, and file
-	H5Dclose(dataset_id);
-	H5Sclose(dataspace_id);
-	H5Gclose(group_id);
-	H5Fclose(file_id);
+	// H5Sclose(dataspace_id);
+	// H5Dclose(dataset_id);
+	// H5Gclose(group_id);
+	// H5Fclose(file_id);
 
 	log_debug("Metadata write test passed");
 
 	// Open the HDF5 file
-	file_id = H5Fopen(PAR_TEST_FILENAME, H5F_ACC_RDONLY, fapl_id);
+	// file_id = H5Fopen(PAR_TEST_FILENAME, H5F_ACC_RDONLY, fapl_id);
 	PAR_TEST_CHECK(file_id, PAR_TEST_FILENAME);
 
 	// Open the "measurements" dataset

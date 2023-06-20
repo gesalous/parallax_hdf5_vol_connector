@@ -152,7 +152,6 @@ void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_
 		"creating new file: %s flags %s Does it want a POSIX FD?: %s Does it want to use file locking? %s Does it want to ignore disabled file locks? %s",
 		name, parh5F_flags2s(flags), want_posix_fd ? yes : no, use_file_locking ? yes : no,
 		ignore_disabled_file_locks ? yes : no);
-	raise(SIGINT);
 	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, fcpl_id);
 }
 
@@ -189,6 +188,89 @@ static const char *parh5F_type_to_string(int type)
 		return "H5O_TYPE_MAP";
 
 	return "What?";
+}
+
+struct parh5F_obj_data {
+	size_t max_objs;
+	hid_t *oid_list;
+	size_t *obj_count;
+	bool is_count;
+};
+
+static herr_t parhh5F_get_obj_ids_callback(hid_t id, void *udata)
+{
+	struct parh5F_obj_data *id_data = (struct parh5F_obj_data *)udata;
+	ssize_t connector_name_len = PARALLAX_VOL_CONNECTOR_NAME_SIZE;
+	char connector_name[PARALLAX_VOL_CONNECTOR_NAME_SIZE] = { 0 };
+	/* Ensure that the ID represents a DAOS VOL object */
+	connector_name_len = H5VLget_connector_name(id, connector_name, connector_name_len);
+	log_debug("--->Connector name is: %s", connector_name);
+
+	/* H5VLget_connector_name should only fail for IDs that don't represent VOL objects */
+	if (connector_name_len < 0) {
+		log_fatal("Could not get connector object");
+		_exit(EXIT_FAILURE);
+	}
+
+	if (strcmp(connector_name, PARALLAX_VOL_CONNECTOR_NAME)) {
+		log_warn("Not a Parallax object vol is %s", connector_name);
+		return PARH5_SUCCESS;
+	}
+	H5I_type_t *type = H5VLobject(id);
+	if (NULL == type) {
+		log_fatal("can't retrieve VOL object for ID");
+		_exit(EXIT_FAILURE);
+	}
+	if (*type != H5I_GROUP && *type != H5I_DATASET) {
+		log_fatal("Parallax object should be either a group or a dataset");
+		_exit(EXIT_FAILURE);
+	}
+
+	if (id_data->is_count) {
+		(*id_data->obj_count)++;
+		return H5_ITER_CONT;
+	}
+
+	if (*id_data->obj_count < id_data->max_objs) {
+		id_data->oid_list[(*id_data->obj_count)++] = id;
+		return H5_ITER_CONT;
+	}
+	return H5_ITER_STOP;
+}
+
+static void parh5F_iterate_objs(unsigned obj_types, H5I_iterate_func_t filter, void *data)
+{
+	if (obj_types & H5F_OBJ_FILE) {
+		log_debug("Iterating files...");
+		if (H5Iiterate(H5I_FILE, filter, data) < 0) {
+			log_fatal("failed to iterate over file's open file IDs");
+			_exit(EXIT_FAILURE);
+		}
+	}
+	if (obj_types & H5F_OBJ_GROUP) {
+		log_debug("Iterating groups...");
+		if (H5Iiterate(H5I_GROUP, filter, data) < 0) {
+			log_fatal("failed to iterate over file's open file IDs");
+			_exit(EXIT_FAILURE);
+		}
+	}
+	if (obj_types & H5F_OBJ_DATASET) {
+		log_debug("Iterating datasets...");
+		if (H5Iiterate(H5I_GROUP, filter, data) < 0) {
+			log_fatal("failed to iterate over file's open file IDs");
+			_exit(EXIT_FAILURE);
+		}
+	}
+
+	if (obj_types & H5F_OBJ_DATATYPE) {
+		log_fatal("Does not support iteration over datatypes");
+		_exit(EXIT_FAILURE);
+	}
+
+	if (obj_types & H5F_OBJ_ATTR) {
+		log_fatal("Does not support iteration over attributes");
+		_exit(EXIT_FAILURE);
+	}
 }
 
 herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void **req)
@@ -233,23 +315,34 @@ herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void *
 		memcpy(fquery->args.get_name.buf, file->name, strlen(file->name) + 1);
 		*fquery->args.get_name.file_name_len = strlen(file->name) + 1;
 		return PARH5_SUCCESS;
-	case H5VL_FILE_GET_OBJ_COUNT:;
-		log_debug("H5VL_FILE_GET_OBJ_COUNT for file: %s ommiting types to count... XXX TODO XXX", file->name);
-		parh5G_group_t root_group = parh5F_get_root_group(file);
-		parh5I_inode_t inode = parh5G_get_inode(root_group);
-		*fquery->args.get_obj_count.count = parh5I_get_obj_count(inode);
+	case H5VL_FILE_GET_OBJ_COUNT: {
+		unsigned obj_types = fquery->args.get_obj_count.types;
+		struct parh5F_obj_data udata = {
+			.max_objs = 0, .oid_list = NULL, .obj_count = fquery->args.get_obj_count.count, .is_count = true
+		};
+		parh5F_iterate_objs(obj_types, parhh5F_get_obj_ids_callback, &udata);
 
-		log_debug("types are %s count is %lu", parh5F_type_to_string(fquery->args.get_obj_count.types),
-			  *fquery->args.get_obj_count.count);
-		// raise(SIGINT);
-		return PARH5_SUCCESS;
-	case H5VL_FILE_GET_OBJ_IDS:
-		log_debug("H5VL_FILE_GET_OBJ_IDS for file: %s", file->name);
-		parh5G_group_t root = parh5F_get_root_group(file);
-		*fquery->args.get_obj_ids.count = 0;
-		parh5I_get_all_objects(parh5G_get_inode(root), &fquery->args.get_obj_ids, file);
-		log_debug("Total objects are %lu", *fquery->args.get_obj_ids.count);
-		return PARH5_SUCCESS;
+		log_debug("FILE_GET_OBJ count returned %lu objects", *fquery->args.get_obj_count.count);
+		return *udata.obj_count;
+	}
+
+	case H5VL_FILE_GET_OBJ_IDS: {
+		unsigned obj_types = fquery->args.get_obj_ids.types;
+		size_t max_ids = fquery->args.get_obj_ids.max_objs;
+
+		if (max_ids == 0) {
+			log_debug("Max ids are 0 nothong to do");
+			return PARH5_SUCCESS; /*nothing to do*/
+		}
+
+		struct parh5F_obj_data udata = { .max_objs = fquery->args.get_obj_ids.max_objs,
+						 .oid_list = fquery->args.get_obj_ids.oid_list,
+						 .obj_count = fquery->args.get_obj_ids.count,
+						 .is_count = false };
+
+		parh5F_iterate_objs(obj_types, parhh5F_get_obj_ids_callback, &udata);
+		return *udata.obj_count;
+	}
 	default:
 		log_fatal("Unknown option");
 		_exit(EXIT_FAILURE);
