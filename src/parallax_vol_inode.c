@@ -5,6 +5,7 @@
 #include "parallax_vol_dataset.h"
 #include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
+#include <H5Ipublic.h>
 #include <H5VLconnector.h>
 #include <assert.h>
 #include <log.h>
@@ -85,9 +86,14 @@ static bool parh5I_check_prefix(const char *prefix, size_t prefix_len, const cha
 
 void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *objs, parh5F_file_t file)
 {
+	if (!inode) {
+		log_fatal("NULL inode?");
+		_exit(EXIT_FAILURE);
+	}
+
 	static_assert(PARH5I_INODE_SIZE > PARH5I_NAME_SIZE + PARH5I_GROUP_METADATA_BUFFER_SIZE, "INODE size too small");
 	par_handle par_db = parh5F_get_parallax_db(file);
-	log_debug("Searching Inode: %s with inode num: %lu", inode->name, inode->inode_num);
+	// log_debug("Searching Inode: %s with inode num: %lu", inode->name, inode->inode_num);
 	if (inode->type != H5I_GROUP && inode->type != H5I_DATASET) {
 		log_fatal("Corrupted inode");
 		_exit(EXIT_FAILURE);
@@ -95,8 +101,14 @@ void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *
 
 	if (inode->type == H5I_DATASET) {
 		parh5D_dataset_t dataset = parh5D_open_dataset(inode, file);
+
+		hid_t dataset_id = H5Iregister(150, dataset);
+		if (!H5Iis_valid(dataset_id)) {
+			log_fatal("Failed to register dataset name: %s", inode->name);
+			_exit(EXIT_FAILURE);
+		}
 		log_debug("Added Dataset of name: %s at idx %lu", inode->name, *objs->count);
-		objs->oid_list[(*objs->count)++] = (hid_t)dataset;
+		objs->oid_list[(*objs->count)++] = dataset_id;
 		return;
 	}
 	parh5G_group_t self_group = parh5G_open_group(file, inode);
@@ -115,10 +127,10 @@ void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *
 		if (!parh5I_check_prefix(start_key_buffer, sizeof(start_key_buffer), pivot_key.data, pivot_key.size))
 			break;
 		struct parh5I_pivot *pivot = (struct parh5I_pivot *)pivot_value.val_buffer;
-		log_debug("--->Got key: %.*s of size: %u from inode: %s inode_num is: %lu ", pivot_key.size,
-			  pivot_key.data, pivot_key.size, inode->name, pivot->inode_num);
+		// log_debug("--->Got key: %.*s of size: %u from inode: %s inode_num is: %lu ", pivot_key.size,
+		// 	  pivot_key.data, pivot_key.size, inode->name, pivot->inode_num);
 		parh5I_inode_t child_inode = parh5I_get_inode(par_db, pivot->inode_num);
-		log_debug("--->Fetched child inode: %s", child_inode->name);
+		// log_debug("--->Fetched child inode: %s", child_inode->name);
 		parh5I_get_all_objects(child_inode, objs, file);
 		par_get_next(scanner);
 	}
@@ -137,8 +149,9 @@ void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *
 		log_fatal("Overflow! objs_count is %ld max objs %ld", *objs->count, objs->max_objs);
 		_exit(EXIT_FAILURE);
 	}
-	log_debug("Adding Group of name: %s at idx %lu", inode->name, *objs->count);
-	objs->oid_list[(*objs->count)++] = (hid_t)self_group;
+	hid_t group_id = H5Iregister(150, self_group);
+	objs->oid_list[(*objs->count)++] = group_id;
+	log_debug("Added Group of name: %s at idx %lu", inode->name, *objs->count);
 }
 
 uint64_t parh5I_get_obj_count(parh5I_inode_t root_inode)
@@ -273,10 +286,10 @@ parh5I_inode_t parh5I_get_inode(par_handle par_db, uint64_t inode_num)
 	}
 
 	assert(par_value.val_size == PARH5I_INODE_SIZE);
-	parh5I_inode_t root_inode = (parh5I_inode_t)par_value.val_buffer;
-	log_debug("******<INODE Fetched: %s, num: %lu>", root_inode->name, root_inode->inode_num);
-	parh5I_print_inode(root_inode);
-	log_debug("******</INODE Fetched: %s>", root_inode->name);
+	// parh5I_inode_t root_inode = (parh5I_inode_t)par_value.val_buffer;
+	// log_debug("******<INODE Fetched: %s, num: %lu>", root_inode->name, root_inode->inode_num);
+	// parh5I_print_inode(root_inode);
+	// log_debug("******</INODE Fetched: %s>", root_inode->name);
 	return (parh5I_inode_t)par_value.val_buffer;
 }
 
