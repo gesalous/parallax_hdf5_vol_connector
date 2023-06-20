@@ -70,4 +70,6 @@ parh5F_file_t parh5G_get_file(parh5G_group_t group);
 hid_t parh5G_get_cpl(parh5G_group_t group);
 
 hid_t parh5G_get_apl(parh5G_group_t group);
+
+const char *parh5G_get_group_name(parh5G_group_t group);
 #endif
