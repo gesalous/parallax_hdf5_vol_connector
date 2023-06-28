@@ -92,4 +92,8 @@ bool parh5I_is_root_inode(parh5I_inode_t inode);
 void parh5I_get_all_objects(parh5I_inode_t inode, H5VL_file_get_obj_ids_args_t *objs, parh5F_file_t file);
 size_t parh5I_get_inode_metadata_size(void);
 char *parh5I_get_inode_metadata_buf(parh5I_inode_t inode);
+void *parh5I_find_object(parh5I_inode_t inode, const char *name, H5I_type_t *opened_type, parh5F_file_t file);
+uint32_t parh5I_get_nlinks(parh5I_inode_t inode);
+void parh5I_increase_nlinks(parh5I_inode_t inode);
+void parh5I_get_children_names(parh5I_inode_t inode, char **objs, size_t *obj_size, parh5F_file_t file);
 #endif
