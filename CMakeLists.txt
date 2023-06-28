@@ -70,6 +70,7 @@ set(LINK_LIBS ${LINK_LIBS} ${HDF5_C_${LIB_TYPE}_LIBRARY})
 
 add_subdirectory(src)
 add_subdirectory(test)
+add_subdirectory(tools)
 
 set(FETCHCONTENT_QUIET FALSE)
 FetchContent_Declare(
