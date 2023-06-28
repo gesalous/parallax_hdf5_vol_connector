@@ -793,7 +793,8 @@ herr_t parh5D_get(void *obj, H5VL_dataset_get_args_t *get_op, hid_t dxpl_id, voi
 
 	switch (get_op->op_type) {
 	case H5VL_DATASET_GET_SPACE:
-		log_debug("HDF5 wants to know about space of dataset: %s", parh5I_get_inode_name(dataset->inode));
+		log_debug("HDF5 wants to know about space of dataset: %s nlinks are: %u",
+			  parh5I_get_inode_name(dataset->inode), parh5I_get_nlinks(dataset->inode));
 		get_op->args.get_space.space_id = dataset->space_id;
 		break;
 	case H5VL_DATASET_GET_TYPE:
@@ -849,7 +850,7 @@ herr_t parh5D_close(void *dset, hid_t dxpl_id, void **req)
 	//Don't worry about space, type, and dcpl. HDF5 knows about their existence
 	//since it has asked the plugin during open and cleans them up itself
 
-	log_debug("Closing dataset %s SUCCESS", parh5I_get_inode_name(dataset->inode));
+	// log_debug("Closing dataset %s SUCCESS", parh5I_get_inode_name(dataset->inode));
 	free(dataset->inode);
 	free(dataset);
 
