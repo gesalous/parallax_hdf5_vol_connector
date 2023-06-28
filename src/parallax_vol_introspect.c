@@ -24,18 +24,18 @@ herr_t parh5_get_conn_cls(void *obj, H5VL_get_conn_lvl_t lvl, const struct H5VL_
 	(void)lvl;
 	(void)conn_cls;
 	H5I_type_t *type = obj;
-	if (*type != H5I_FILE) {
-		log_fatal("Currently support only file objects");
+	if (*type != H5I_FILE && *type != H5I_GROUP) {
+		log_fatal("Currently support only file objects type is: %d", *type);
 		_exit(EXIT_FAILURE);
 	}
 	log_debug("Return parallax vol plugin callbacks for file? %s conn type: %d", H5I_FILE == *type ? "YES" : "NO",
 		  lvl);
-	struct H5VL_class_t *new_conn = calloc(1UL, sizeof(*new_conn));
-	struct H5VL_class_t *parallax = (struct H5VL_class_t *)H5PLget_plugin_info();
-	memcpy(new_conn, parallax, sizeof(*new_conn));
-	new_conn->name = "native";
-	new_conn->value = 0;
-	*conn_cls = new_conn;
+	// struct H5VL_class_t *new_conn = calloc(1UL, sizeof(*new_conn));
+	// struct H5VL_class_t *parallax = (struct H5VL_class_t *)H5PLget_plugin_info();
+	// memcpy(new_conn, parallax, sizeof(*new_conn));
+	// new_conn->name = "native";
+	// new_conn->value = 0;
+	*conn_cls = H5PLget_plugin_info();
 	return PARH5_SUCCESS;
 }
 
