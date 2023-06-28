@@ -26,6 +26,7 @@ struct parh5F_file {
 	const char *name;
 	parh5G_group_t root_group;
 	par_handle db;
+	unsigned int flags; /*READ ONLY, RDWR etc*/
 };
 
 static hid_t parh5F_get_fcpl(parh5F_file_t file)
@@ -65,7 +66,7 @@ inline par_handle parh5F_get_parallax_db(parh5F_file_t file)
 }
 
 static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initializers open_flag, hid_t fapl_id,
-				     hid_t fcpl_id)
+				     hid_t fcpl_id, unsigned int flags)
 {
 	par_db_options db_options = { .volume_name = PARALLAX_VOLUME,
 				      .create_flag = open_flag,
@@ -78,6 +79,7 @@ static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initiali
 	parh5F_file_t file = calloc(1UL, sizeof(struct parh5F_file));
 	const char *error_message = NULL;
 	file->obj_type = H5I_FILE;
+	file->flags = flags;
 	file->db = par_open(&db_options, &error_message);
 	if (error_message)
 		log_debug("Parallax says: %s", error_message);
@@ -152,7 +154,7 @@ void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_
 		"creating new file: %s flags %s Does it want a POSIX FD?: %s Does it want to use file locking? %s Does it want to ignore disabled file locks? %s",
 		name, parh5F_flags2s(flags), want_posix_fd ? yes : no, use_file_locking ? yes : no,
 		ignore_disabled_file_locks ? yes : no);
-	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, fcpl_id);
+	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, fcpl_id, flags);
 }
 
 void *parh5F_open(const char *name, unsigned flags, hid_t fapl_id, hid_t dxpl_id, void **req)
@@ -164,7 +166,7 @@ void *parh5F_open(const char *name, unsigned flags, hid_t fapl_id, hid_t dxpl_id
 	(void)req;
 
 	log_debug("Opening file name: %s flags %s", name, parh5F_flags2s(flags));
-	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, 0);
+	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, 0, flags);
 }
 
 static const char *parh5F_type_to_string(int type)
@@ -221,8 +223,8 @@ static herr_t parhh5F_get_obj_ids_callback(hid_t id, void *udata)
 		log_fatal("can't retrieve VOL object for ID");
 		_exit(EXIT_FAILURE);
 	}
-	if (*type != H5I_GROUP && *type != H5I_DATASET) {
-		log_fatal("Parallax object should be either a group or a dataset");
+	if (*type != H5I_GROUP && *type != H5I_DATASET && *type != H5I_FILE) {
+		log_fatal("Parallax object should be either a group, dataset, or file however it is %d", *type);
 		_exit(EXIT_FAILURE);
 	}
 
@@ -250,27 +252,23 @@ static void parh5F_iterate_objs(unsigned obj_types, H5I_iterate_func_t filter, v
 	if (obj_types & H5F_OBJ_GROUP) {
 		log_debug("Iterating groups...");
 		if (H5Iiterate(H5I_GROUP, filter, data) < 0) {
-			log_fatal("failed to iterate over file's open file IDs");
+			log_fatal("failed to iterate over file's open file groups");
 			_exit(EXIT_FAILURE);
 		}
 	}
 	if (obj_types & H5F_OBJ_DATASET) {
 		log_debug("Iterating datasets...");
 		if (H5Iiterate(H5I_GROUP, filter, data) < 0) {
-			log_fatal("failed to iterate over file's open file IDs");
+			log_fatal("failed to iterate over file's open file datasets");
 			_exit(EXIT_FAILURE);
 		}
 	}
 
-	if (obj_types & H5F_OBJ_DATATYPE) {
-		log_fatal("Does not support iteration over datatypes");
-		_exit(EXIT_FAILURE);
-	}
+	if (obj_types & H5F_OBJ_DATATYPE)
+		log_warn("Sorry PARALLAX_VOL_PLUGIN does not support DATATYPES");
 
-	if (obj_types & H5F_OBJ_ATTR) {
-		log_fatal("Does not support iteration over attributes");
-		_exit(EXIT_FAILURE);
-	}
+	if (obj_types & H5F_OBJ_ATTR)
+		log_warn("Sorry PARALLAX_VOL_PLUGIN does not support iterating over ATTRIBUTES");
 }
 
 herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void **req)
@@ -297,8 +295,11 @@ herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void *
 		log_debug("H5VL_FILE_GET_FILENO");
 		break;
 	case H5VL_FILE_GET_INTENT:
-		log_debug("H5VL_FILE_GET_INTENT");
-		break;
+		if ((file->flags & H5F_ACC_RDWR) == H5F_ACC_RDWR)
+			*fquery->args.get_intent.flags = H5F_ACC_RDWR;
+		else
+			*fquery->args.get_intent.flags = H5F_ACC_RDONLY;
+		return PARH5_SUCCESS;
 	case H5VL_FILE_GET_NAME:
 		log_debug("H5VL_FILE_GET_NAME");
 
@@ -322,7 +323,8 @@ herr_t parh5F_get(void *obj, H5VL_file_get_args_t *fquery, hid_t dxpl_id, void *
 		};
 		parh5F_iterate_objs(obj_types, parhh5F_get_obj_ids_callback, &udata);
 
-		log_debug("FILE_GET_OBJ count returned %lu objects", *fquery->args.get_obj_count.count);
+		log_debug("FILE_GET_OBJ count for file: %s returned %lu objects", file->name,
+			  *fquery->args.get_obj_count.count);
 		return *udata.obj_count;
 	}
 
@@ -420,7 +422,6 @@ herr_t(parh5F_optional)(void *obj, H5VL_optional_args_t *args, hid_t dxpl_id, vo
 	(void)req;
 	log_fatal("Sorry unimplemented XXX TODO\n");
 	_exit(EXIT_FAILURE);
-	return 1;
 }
 
 herr_t parh5F_close(void *file, hid_t dxpl_id, void **req)
