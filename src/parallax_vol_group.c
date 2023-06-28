@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <log.h>
 #include <parallax/parallax.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +25,7 @@
 #define PARH5G_CHECK_ERROR(X)                  \
 	if (X < 0) {                           \
 		log_fatal("Operation failed"); \
-		assert(0);                     \
+		raise(SIGINT);                 \
 		_exit(EXIT_FAILURE);           \
 	}
 
@@ -88,10 +89,13 @@ static void parh5G_deserialize_group_metadata(parh5G_group_t group)
 parh5G_group_t parh5G_open_group(parh5F_file_t file, parh5I_inode_t inode)
 {
 	parh5G_group_t group = calloc(1UL, sizeof(struct parh5G_group));
+	group->inode = inode;
+	log_debug("Deserializing group name: %s for file: %s", parh5I_get_inode_name(inode),
+		  parh5F_get_file_name(file));
+	parh5G_deserialize_group_metadata(group);
 	group->type = H5I_GROUP;
 	group->file = file;
-	group->inode = inode;
-	parh5G_deserialize_group_metadata(group);
+
 	return group;
 }
 
@@ -216,28 +220,49 @@ herr_t parh5G_get(void *obj, H5VL_group_get_args_t *group_query, hid_t dxpl_id, 
 	(void)dxpl_id;
 	(void)req;
 	H5I_type_t *type = obj;
-	if (H5I_FILE != *type) {
-		log_fatal("Can handle only file types");
+	if (H5I_FILE != *type && H5I_GROUP != *type) {
+		log_fatal("Can handle only file types type is: %d", *type);
 		_exit(EXIT_FAILURE);
 	}
-	parh5F_file_t file = obj;
-	parh5G_group_t root_group = parh5F_get_root_group(file);
+	parh5G_group_t root_group = obj;
+	if (*type == H5I_FILE) {
+		parh5F_file_t file = obj;
+		root_group = parh5F_get_root_group(file);
+	}
+
+	if (H5VL_GROUP_GET_GCPL == group_query->op_type) {
+		group_query->args.get_gcpl.gcpl_id = H5Pcopy(root_group->cpl_id);
+		return PARH5_SUCCESS;
+	}
 
 	if (H5VL_GROUP_GET_INFO == group_query->op_type &&
 	    H5VL_OBJECT_BY_SELF == group_query->args.get_info.loc_params.type) {
 		group_query->args.get_info.ginfo->mounted = false;
 		group_query->args.get_info.ginfo->storage_type = H5G_STORAGE_TYPE_UNKNOWN;
-		group_query->args.get_info.ginfo->nlinks = parh5I_get_obj_count(root_group->inode);
-		group_query->args.get_info.ginfo->max_corder = parh5I_get_obj_count(root_group->inode);
-		log_debug("Answered H5VL_GROUP_GET_INFO for all");
+		group_query->args.get_info.ginfo->nlinks = parh5I_get_nlinks(root_group->inode);
+		group_query->args.get_info.ginfo->max_corder = parh5I_get_nlinks(root_group->inode);
+		log_debug("-----> Direct num links for group: %s are %u", parh5G_get_group_name(root_group),
+			  parh5I_get_nlinks(root_group->inode));
 		return PARH5_SUCCESS;
 	}
-
-	if (H5VL_GROUP_GET_GCPL == group_query->op_type) {
-		log_debug("Searching for H5VL_GROUP_GET_GCPL");
+	if (H5VL_GROUP_GET_INFO == group_query->op_type &&
+	    H5VL_OBJECT_BY_NAME == group_query->args.get_info.loc_params.type) {
+		log_debug("Called for group: %s and searching name (within): %s", parh5G_get_group_name(root_group),
+			  group_query->args.get_info.loc_params.loc_data.loc_by_name.name);
+		return PARH5_SUCCESS;
+	}
+	if (H5VL_GROUP_GET_INFO == group_query->op_type &&
+	    H5VL_OBJECT_BY_IDX == group_query->args.get_info.loc_params.type) {
+		log_debug("Called for group: %s and searching name (within): idx", parh5G_get_group_name(root_group));
+	}
+	if (H5VL_GROUP_GET_INFO == group_query->op_type &&
+	    H5VL_OBJECT_BY_TOKEN == group_query->args.get_info.loc_params.type) {
+		log_debug("Called for group: %s and searching name (within): BY_TOKEN",
+			  parh5G_get_group_name(root_group));
 	}
 
-	log_fatal("Group: Sorry unimplemented function XXX TODO XXX");
+	log_fatal("Group: Sorry unimplemented function : %s XXX TODO XXX",
+		  group_query->op_type == H5VL_GROUP_GET_INFO ? "GROUP_INFO" : "Unknown");
 	_exit(EXIT_FAILURE);
 	return 1;
 }
@@ -275,13 +300,14 @@ herr_t parh5G_close(void *obj, hid_t dxpl_id, void **req)
 	}
 	parh5G_group_t group = obj;
 	parh5I_inode_t inode = parh5G_get_inode(group);
-	log_debug("Closing group....%s", parh5I_get_inode_name(inode));
+	log_debug("Closing group....%s inode_num: %lu cpl_id = %ld apl_id = %ld", parh5I_get_inode_name(inode),
+		  parh5I_get_inode_num(inode), group->cpl_id, group->apl_id);
 
-	H5Pclose(group->cpl_id);
-	H5Pclose(group->apl_id);
+	// H5Pclose(group->cpl_id);
+	// H5Pclose(group->apl_id);
 	free(group->inode);
-	free(obj);
-	log_debug("Closing group....SUCCESS");
+	// memset(group, 0x00, sizeof(struct parh5G_group));
+	// free(group);
 	return PARH5_SUCCESS;
 }
 
