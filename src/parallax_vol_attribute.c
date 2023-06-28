@@ -10,8 +10,10 @@
 #include <H5Tpublic.h>
 #include <H5VLconnector.h>
 #include <assert.h>
+#include <locale.h>
 #include <log.h>
 #include <parallax/parallax.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,8 +36,16 @@ struct parh5A_attribute {
 	hid_t type_id;
 	hid_t space_id;
 	uint32_t value_size;
-	char value[];
+	char *value;
 };
+
+static void parh5A_print_buffer_Hex(const unsigned char *buffer, size_t size)
+{
+	for (size_t i = 0; i < size; i++) {
+		fprintf(stderr, "%02X ", buffer[i]);
+	}
+	fprintf(stderr, "\n");
+}
 
 static bool parh5A_serialize_attr(parh5A_attribute_t attr, char *buffer, size_t *size)
 {
@@ -44,8 +54,8 @@ static bool parh5A_serialize_attr(parh5A_attribute_t attr, char *buffer, size_t 
 
 	size_t space_size = UINT64_MAX;
 	H5Sencode2(attr->space_id, NULL, &space_size, 0);
-	log_debug("Serializing attr: %s Type size needed :%lu space_size needed: %lu buffer size: %lu", attr->name,
-		  type_size, space_size, *size);
+	// log_debug("Serializing attr: %s Type size needed :%lu space_size needed: %lu buffer size: %lu", attr->name,
+	// 	  type_size, space_size, *size);
 
 	size_t space_needed = sizeof(attr->type) + PARH5A_MAX_ATTR_NAME + type_size + space_size +
 			      sizeof(attr->value_size) + attr->value_size;
@@ -60,7 +70,7 @@ static bool parh5A_serialize_attr(parh5A_attribute_t attr, char *buffer, size_t 
 	memcpy(&buffer[idx], &attr->type, sizeof(attr->type));
 	idx += sizeof(attr->type);
 
-	memcpy(&buffer[idx], attr->name, PARH5A_MAX_ATTR_NAME);
+	memcpy(&buffer[idx], attr->name, strlen(attr->name) + 1);
 	idx += PARH5A_MAX_ATTR_NAME;
 
 	if (H5Tencode(attr->type_id, &buffer[idx], &type_size) < 0) {
@@ -111,12 +121,10 @@ static bool parh5A_store_attr(parh5A_attribute_t attr)
 		log_fatal("Failed to serialize attribute: %s", attr->name);
 		_exit(EXIT_FAILURE);
 	}
-	uint64_t hash = djb2_hash((const unsigned char *)attr->name, PARH5A_MAX_ATTR_NAME);
-	char key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX) + sizeof(parent_inode_num) + sizeof(hash)] = {
-		PARH5A_ATTR_KEY_PREFIX
-	};
-	memcpy(&key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX)], &parent_inode_num, sizeof(parent_inode_num));
-	memcpy(&key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX) + sizeof(parent_inode_num)], &hash, sizeof(hash));
+	uint64_t hash = djb2_hash((const unsigned char *)attr->name, strlen(attr->name) + 1);
+	char key_buffer[1UL + sizeof(parent_inode_num) + sizeof(hash)] = { PARH5A_ATTR_KEY_PREFIX };
+	memcpy(&key_buffer[1UL], &parent_inode_num, sizeof(parent_inode_num));
+	memcpy(&key_buffer[1UL + sizeof(parent_inode_num)], &hash, sizeof(hash));
 
 	struct par_key par_key = { .size = sizeof(key_buffer), .data = key_buffer };
 
@@ -130,7 +138,17 @@ static bool parh5A_store_attr(parh5A_attribute_t attr)
 			  parent_inode_num);
 		_exit(EXIT_FAILURE);
 	}
-	log_debug("Store attr: %s successfully", attr->name);
+	setlocale(LC_ALL, "");
+	log_debug("Storing attr name: %s size: %u belonging to: %s contents: %ls", attr->name, attr->value_size,
+		  attr->parent.type == H5I_GROUP ? parh5G_get_group_name(attr->parent.group) :
+						   parh5D_get_dataset_name(attr->parent.dataset),
+		  (wchar_t *)attr->value);
+
+	// parh5A_print_buffer_Hex((const unsigned char *)attr->value, attr->value_size);
+	// log_debug("Attr key in parallax is:");
+	// parh5A_print_buffer_Hex((const unsigned char *)key_buffer, sizeof(key_buffer));
+
+	free(buffer);
 
 	return true;
 }
@@ -157,12 +175,10 @@ static bool parh5A_delete_attr(struct parh5A_object *obj, const char *attr_name)
 	}
 	uint64_t parent_inode_num = parh5I_get_inode_num(inode);
 	par_db = parh5F_get_parallax_db(file);
-	uint64_t hash = djb2_hash((const unsigned char *)attr_name, PARH5A_MAX_ATTR_NAME);
-	char key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX) + sizeof(parent_inode_num) + sizeof(hash)] = {
-		PARH5A_ATTR_KEY_PREFIX
-	};
-	memcpy(&key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX)], &parent_inode_num, sizeof(parent_inode_num));
-	memcpy(&key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX) + sizeof(parent_inode_num)], &hash, sizeof(hash));
+	uint64_t hash = djb2_hash((const unsigned char *)attr_name, strlen(attr_name) + 1);
+	char key_buffer[1UL + sizeof(parent_inode_num) + sizeof(hash)] = { PARH5A_ATTR_KEY_PREFIX };
+	memcpy(&key_buffer[1UL], &parent_inode_num, sizeof(parent_inode_num));
+	memcpy(&key_buffer[1UL + sizeof(parent_inode_num)], &hash, sizeof(hash));
 
 	struct par_key par_key = { .size = sizeof(key_buffer), .data = key_buffer };
 	const char *error_message = NULL;
@@ -201,12 +217,10 @@ static bool parh5A_exists_attr(const char *attr_name, struct parh5A_object *obje
 	uint64_t parent_inode_num = parh5I_get_inode_num(inode);
 	par_db = parh5F_get_parallax_db(file);
 
-	uint64_t hash = djb2_hash((const unsigned char *)attr_name, PARH5A_MAX_ATTR_NAME);
-	char key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX) + sizeof(parent_inode_num) + sizeof(hash)] = {
-		PARH5A_ATTR_KEY_PREFIX
-	};
-	memcpy(&key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX)], &parent_inode_num, sizeof(parent_inode_num));
-	memcpy(&key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX) + sizeof(parent_inode_num)], &hash, sizeof(hash));
+	uint64_t hash = djb2_hash((const unsigned char *)attr_name, strlen(attr_name) + 1);
+	char key_buffer[1UL + sizeof(parent_inode_num) + sizeof(hash)] = { PARH5A_ATTR_KEY_PREFIX };
+	memcpy(&key_buffer[1UL], &parent_inode_num, sizeof(parent_inode_num));
+	memcpy(&key_buffer[1UL + sizeof(parent_inode_num)], &hash, sizeof(hash));
 
 	struct par_key par_key = { .size = sizeof(key_buffer), .data = key_buffer };
 	return par_exists(par_db, &par_key) == PAR_SUCCESS;
@@ -236,12 +250,10 @@ static parh5A_attribute_t parh5A_get_attr(const char *attr_name, struct parh5A_o
 	uint64_t parent_inode_num = parh5I_get_inode_num(inode);
 	par_db = parh5F_get_parallax_db(file);
 
-	uint64_t hash = djb2_hash((const unsigned char *)attr_name, PARH5A_MAX_ATTR_NAME);
-	char key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX) + sizeof(parent_inode_num) + sizeof(hash)] = {
-		PARH5A_ATTR_KEY_PREFIX
-	};
-	memcpy(&key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX)], &parent_inode_num, sizeof(parent_inode_num));
-	memcpy(&key_buffer[sizeof(PARH5A_ATTR_KEY_PREFIX) + sizeof(parent_inode_num)], &hash, sizeof(hash));
+	uint64_t hash = djb2_hash((const unsigned char *)attr_name, strlen(attr_name) + 1);
+	char key_buffer[1UL + sizeof(parent_inode_num) + sizeof(hash)] = { PARH5A_ATTR_KEY_PREFIX };
+	memcpy(&key_buffer[1UL], &parent_inode_num, sizeof(parent_inode_num));
+	memcpy(&key_buffer[1UL + sizeof(parent_inode_num)], &hash, sizeof(hash));
 
 	struct par_key par_key = { .size = sizeof(key_buffer), .data = key_buffer };
 	struct par_value par_value = { 0 };
@@ -272,14 +284,13 @@ static parh5A_attribute_t parh5A_get_attr(const char *attr_name, struct parh5A_o
 	idx += size;
 	memcpy(&attribute->value_size, &par_value.val_buffer[idx], sizeof(attribute->value_size));
 	idx += sizeof(attribute->value_size);
-	attribute = realloc(attribute, attribute->value_size);
-	if (!attribute) {
-		log_fatal("Failed to realloc");
-		_exit(EXIT_FAILURE);
-	}
+	attribute->value = calloc(1UL, attribute->value_size + 1);
 	memcpy(attribute->value, &par_value.val_buffer[idx], attribute->value_size);
 	free(par_value.val_buffer);
-
+	log_debug("Attribute: %s value size: %u contents: %.*s", attr_name, attribute->value_size,
+		  attribute->value_size, attribute->value);
+	log_debug("Attr key in parallax");
+	parh5A_print_buffer_Hex((const unsigned char *)key_buffer, sizeof(key_buffer));
 	return attribute;
 }
 
@@ -361,28 +372,39 @@ void *parh5A_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 
 	parh5A_attribute_t attr = calloc(1UL, sizeof(struct parh5A_attribute));
 	attr->parent.type = loc_params->obj_type;
-	if (H5I_DATASET == attr->parent.type)
+	parh5I_inode_t inode = NULL;
+	par_handle parallax_db = NULL;
+	if (H5I_DATASET == attr->parent.type) {
 		attr->parent.dataset = obj;
+		inode = parh5D_get_inode(obj);
+		parallax_db = parh5F_get_parallax_db(parh5D_get_file(obj));
+	}
 
-	if (H5I_GROUP == attr->parent.type)
+	if (H5I_GROUP == attr->parent.type) {
 		attr->parent.group = obj;
+		inode = parh5G_get_inode(obj);
+		parallax_db = parh5G_get_parallax_db(obj);
+	}
 
 	parh5D_dataset_t dataset = (parh5D_dataset_t)obj;
 	log_debug("Creating attribute for dataset %s location by name requested: %s attr_name: %s type: %s",
 		  parh5D_get_dataset_name(dataset), parh5A_get_object_name(loc_params), attr_name,
 		  parh5A_get_datatype_name(type_id));
-	parh5A_print_dataspace_info(space_id);
 
 	attr->type = H5I_ATTR;
 	attr->type_id = H5Tcopy(type_id);
 	attr->space_id = H5Scopy(space_id);
+	log_debug("**********------>Attributes data space info:");
+	parh5A_print_dataspace_info(attr->space_id);
 
 	if (strlen(attr_name) + 1 > PARH5A_MAX_ATTR_NAME) {
 		log_fatal("Attr name too large max is %u got: %lu", PARH5A_MAX_ATTR_NAME, strlen(attr_name) + 1);
 		_exit(EXIT_FAILURE);
 	}
 	strcpy(attr->name, attr_name);
+	parh5I_increase_nlinks(inode);
 	parh5A_store_attr(attr);
+	parh5I_store_inode(inode, parallax_db);
 	return attr;
 }
 
@@ -395,19 +417,66 @@ void *parh5A_open(void *obj, const H5VL_loc_params_t *loc_params, const char *at
 	(void)aapl_id;
 	(void)dxpl_id;
 	(void)req;
-	log_debug("Sorry unimplemented method");
-	_exit(EXIT_FAILURE);
+	H5I_type_t *type = obj;
+	if (H5I_FILE == *type)
+		log_debug("Opening attribute for FILE");
+	if (H5I_GROUP == *type)
+		log_debug("Opening attribute for GROUP");
+	if (H5I_DATASET == *type) {
+		log_debug("Opening attribute: %s for DATASET: %s", attr_name, parh5D_get_dataset_name(obj));
+	}
+	struct parh5A_object parent = { .type = *type, .group = obj };
+	parh5A_attribute_t attr = parh5A_get_attr(attr_name, &parent);
+	log_debug("Open attr length of value is: %lu", strlen(attr->value) + 1);
+	return attr;
+
+	// log_debug("Sorry unimplemented method");
+	// _exit(EXIT_FAILURE);
 }
 
-herr_t parh5A_read(void *attr, hid_t mem_type_id, void *buf, hid_t dxpl_id, void **req)
+#define PARH5A_MAX_ATTR_SIZE 128
+herr_t parh5A_read(void *_attr, hid_t mem_type_id, void *buf, hid_t dxpl_id, void **req)
 {
-	(void)attr;
-	(void)mem_type_id;
 	(void)buf;
 	(void)dxpl_id;
 	(void)req;
-	log_debug("Sorry unimplemented method");
-	_exit(EXIT_FAILURE);
+	H5I_type_t *type = _attr;
+	if (H5I_ATTR != *type) {
+		log_fatal("Corruption object is not a Parallax attribute");
+		_exit(EXIT_FAILURE);
+	}
+
+	parh5A_attribute_t attr = _attr;
+	size_t dst_size = H5Tget_size(mem_type_id);
+	size_t src_size = H5Tget_size(attr->type_id);
+
+	if (src_size > dst_size) {
+		log_fatal("Buffer too small cannot fit the attribute");
+		_exit(EXIT_FAILURE);
+	}
+
+	char temp_buf[PARH5A_MAX_ATTR_SIZE] = { 0 };
+	char *intermediate_buf = attr->value;
+	if (!H5Tequal(attr->type_id, mem_type_id)) {
+		log_debug("Ooops type conversion needed");
+		if (src_size > PARH5A_MAX_ATTR_SIZE) {
+			log_fatal("Temp buf too small for conversion");
+			_exit(EXIT_FAILURE);
+		}
+		intermediate_buf = temp_buf;
+		if (H5Tconvert(attr->type_id, mem_type_id, 1, attr->value, intermediate_buf, H5P_DEFAULT) < 0) {
+			log_fatal("Failed to convert types");
+			_exit(EXIT_FAILURE);
+		}
+	}
+
+	memcpy(buf, intermediate_buf, attr->value_size);
+	log_debug("Reading attr: %s value: size: %u buf size: %lu contents:", attr->name, attr->value_size,
+		  strlen(buf));
+
+	parh5A_print_buffer_Hex((const unsigned char *)intermediate_buf, attr->value_size);
+
+	return PARH5_SUCCESS;
 }
 
 herr_t parh5A_write(void *obj, hid_t mem_type_id, const void *buf, hid_t dxpl_id, void **req)
@@ -421,19 +490,20 @@ herr_t parh5A_write(void *obj, hid_t mem_type_id, const void *buf, hid_t dxpl_id
 	}
 	parh5A_attribute_t attr = obj;
 	if (!H5Tequal(mem_type_id, attr->type_id)) {
-		log_debug("Sorry types mismatch");
-		return PARH5_FAILURE;
+		log_fatal("Sorry types mismatch");
+		_exit(EXIT_FAILURE);
 	}
-
+	log_debug("Before-->Attr value size: %u actual mem type size: %lu buf actual size: %lu", attr->value_size,
+		  H5Tget_size(mem_type_id), strlen(buf));
 	if (attr->value_size < H5Tget_size(mem_type_id)) {
-		attr = realloc(attr, sizeof(*attr) + H5Tget_size(mem_type_id) - attr->value_size);
-		if (!attr) {
-			log_debug("Failed to realloc");
-			_exit(EXIT_FAILURE);
-		}
+		attr->value = calloc(1UL, H5Tget_size(mem_type_id));
+		attr->value_size = H5Tget_size(mem_type_id);
 	}
-	attr->value_size = H5Tget_size(mem_type_id);
-	memcpy(attr->value, buf, attr->value_size);
+	log_debug("After-->Attr value size: %u actual mem type size: %lu", attr->value_size, H5Tget_size(mem_type_id));
+	memcpy(attr->value, buf, H5Tget_size(mem_type_id));
+	log_debug("Contents of attribute before storing in Parallax are");
+	parh5A_print_buffer_Hex((const unsigned char *)buf, attr->value_size);
+	raise(SIGINT);
 	parh5A_store_attr(attr);
 	return PARH5_SUCCESS;
 }
@@ -479,7 +549,6 @@ herr_t parh5A_specific(void *obj, const H5VL_loc_params_t *loc_params, H5VL_attr
 	if (H5I_GROUP == pobject.type)
 		pobject.group = obj;
 
-	parh5D_dataset_t dataset = (parh5D_dataset_t)obj;
 	// log_debug("Dataset %s location by name requested attribute: %s", parh5D_get_dataset_name(dataset),
 	// 	  parh5A_get_object_name(loc_params));
 
@@ -523,7 +592,6 @@ herr_t parh5A_optional(void *obj, H5VL_optional_args_t *args, hid_t dxpl_id, voi
 
 herr_t parh5A_close(void *obj, hid_t dxpl_id, void **req)
 {
-	(void)obj;
 	(void)dxpl_id;
 	(void)req;
 	H5I_type_t *type = obj;
@@ -540,8 +608,9 @@ herr_t parh5A_close(void *obj, hid_t dxpl_id, void **req)
 		log_fatal("Failed to close space for attribute: %s", attr->name);
 		_exit(EXIT_FAILURE);
 	}
-	// memset(obj, 0x00, sizeof(struct parh5A_attribute) + attr->value_size);
-	// free(obj);
-	log_debug("Closed attr %s did nothing", attr->name);
+	free(attr->value);
+	log_debug("Closed attr %s", attr->name);
+	free(obj);
+
 	return PARH5_SUCCESS;
 }
