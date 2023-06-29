@@ -1,14 +1,15 @@
 #include "../src/parallax_vol_connector.h"
 #include "H5Ipublic.h"
 #include "hdf5.h"
+#include <H5Gpublic.h>
 #include <log.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
-
 #define PAR_TEST_FILENAME "scientific_data.h5"
-#define PAR_TEST_DIM1 20
-#define PAR_TEST_DIM2 100
+#define PAR_TEST_DIM1 1 //20
+#define PAR_TEST_DIM2 1 //100
 
 #define PAR_TEST_CHECK(X, Y)                                \
 	if (group_id < 0) {                                 \
@@ -106,10 +107,32 @@ int main(void)
 	}
 
 	log_info("Verification successful: All array values are 1.0\n");
+	hid_t r_fid = H5Iget_file_id(dataset_id);
+	if (r_fid < 0) {
+		log_fatal("Failed to fetch file id in which dataset id is");
+		_exit(EXIT_FAILURE);
+	}
+	// Create the attribute "class"
+	hid_t space_id = H5Screate(H5S_SCALAR);
+	hid_t type_id = H5Tcopy(H5T_C_S1);
+	H5Tset_size(type_id, strlen("kalimera aspronisi"));
+	hid_t attr_id = H5Acreate2(dataset_id, "class", type_id, space_id, H5P_DEFAULT, H5P_DEFAULT);
+
+	// Write the attribute value
+	const char *attr_value = "kalimera aspronisi";
+	status = H5Awrite(attr_id, type_id, attr_value);
 
 	log_info("Finally fetching all objects...");
 
 	ssize_t num_objs = H5Fget_obj_count(file_id, H5F_OBJ_GROUP | H5F_OBJ_DATASET);
+	uint32_t dataset_size = H5Sget_simple_extent_npoints(dataspace_id);
+	log_info("Dataset size = %u", dataset_size);
+	hsize_t object_num = 0;
+	if (H5Gget_num_objs(group_id, &object_num) < 0) {
+		log_fatal("Failed to get num objs for group");
+		_exit(EXIT_FAILURE);
+	}
+	log_info("---------->NUM OBJS for group are: %ld", object_num);
 
 	// Allocate memory for the object IDs
 	hid_t *obj_ids = calloc(num_objs, sizeof(hid_t));

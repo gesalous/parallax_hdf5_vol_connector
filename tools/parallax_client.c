@@ -52,6 +52,49 @@ static hid_t parh5_client_create_datatype(H5T_class_t class)
 	}
 }
 
+static void parh5_client_write_data(struct parh5_cmd *cmd, hid_t fapl_id)
+{
+	(void)fapl_id;
+	struct parh5_write_data *cr_write = &cmd->cr_write_data;
+	struct parh5_location *loc = NULL;
+	HASH_FIND_PTR(root_loc, &cr_write->dataset_id, loc);
+	if (NULL == loc) {
+		log_fatal("Failed to find a mapping for dataset hid_t: %ld", cr_write->dataset_id);
+		_exit(EXIT_FAILURE);
+	}
+	hid_t dataset_id = loc->loc_id;
+	hid_t dataspace = H5Dget_space(dataset_id);
+
+	// Get the dimensions of the dataspace in storage
+	int ndims = H5Sget_simple_extent_ndims(dataspace);
+	// Create a memory dataspace with the tile dimensions
+	hsize_t mem_dims[ndims];
+	mem_dims[0] = PARH5_TILE_SIZE;
+	for (int i = 1; i < ndims; i++)
+		mem_dims[i] = 1;
+	hid_t memspace = H5Screate_simple(ndims, mem_dims, NULL);
+
+	if (H5Sselect_hyperslab(memspace, H5S_SELECT_SET, cr_write->mem_offset, NULL, cr_write->mem_count, NULL) < 0) {
+		log_fatal("Failed to select mem dataspace");
+		_exit(EXIT_FAILURE);
+	}
+
+	if (H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, cr_write->file_offset, NULL, cr_write->file_count, NULL) <
+	    0) {
+		log_fatal("Failed to select file dataspace");
+		_exit(EXIT_FAILURE);
+	}
+	hid_t datatype_id = H5Dget_type(dataset_id);
+	// Read the tile into the buffer
+	if (H5Dwrite(dataset_id, ctp_class_to_memtype(H5Tget_class(datatype_id)), memspace, dataspace, H5P_DEFAULT,
+		     cr_write->data) < 0) {
+		log_fatal("Write failed");
+		_exit(EXIT_FAILURE);
+	}
+	log_debug("Successfully wrote DATA!");
+	H5Tclose(datatype_id);
+}
+
 static void parh5_client_file_create(struct parh5_cmd *cmd, hid_t fapl_id)
 {
 	struct parh5_create_file *cr_file = &cmd->cr_file;
@@ -132,10 +175,28 @@ static void parh5_client_dataset_create(struct parh5_cmd *cmd, hid_t dapl_id)
 		  cr_dataset->dataset_name, new_loc->loc_id, new_loc->server_loc_id);
 }
 
+static bool parh5_client_read_command(struct parh5_cmd *cmd, int fd)
+{
+	char *buf = (char *)cmd;
+	size_t buf_size = sizeof(*cmd);
+	size_t total_bytes_read = 0;
+	while (total_bytes_read < buf_size) {
+		ssize_t bytes_read = read(fd, &buf[total_bytes_read], buf_size - total_bytes_read);
+		if (bytes_read == -1) {
+			log_fatal("Failed to read command from FIFO queue");
+			_exit(EXIT_FAILURE);
+		}
+		if (bytes_read == 0)
+			return false;
+		total_bytes_read += bytes_read;
+	}
+	return true;
+}
+
 int main(void)
 {
 	parh5_client_handler dispatch_table[PARH5_NUM_ELEMS] = { parh5_client_file_create, parh5_client_group_create,
-								 parh5_client_dataset_create };
+								 parh5_client_dataset_create, parh5_client_write_data };
 	const char *fifo_path = PARH5_QUEUE_NAME;
 
 	// Create the FIFO queue if it doesn't exist
@@ -156,16 +217,9 @@ int main(void)
 	// Read commands from the FIFO queue
 	while (1) {
 		struct parh5_cmd cmd = { 0 };
-
-		// Read the command from the FIFO queue
-		ssize_t bytes_read = read(fd, &cmd, sizeof(cmd));
-		if (bytes_read == -1) {
-			log_fatal("Failed to read command from FIFO queue");
-			_exit(EXIT_FAILURE);
-		} else if (bytes_read == 0)
-			// End of file reached, FIFO queue closed
+		if (!parh5_client_read_command(&cmd, fd))
 			break;
-		log_debug("CMD read full? %s type: %d", bytes_read == sizeof(cmd) ? "YES" : "NO", cmd.cmd);
+
 		// Process the command
 		switch (cmd.cmd) {
 		case PARH5_TXN_START:

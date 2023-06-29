@@ -1,5 +1,6 @@
 #include "../src/parallax_vol_connector.h"
 #include "parallax_server.h"
+#include "parh5_macros.h"
 #include <H5Fpublic.h>
 #include <H5Opublic.h>
 #include <H5Ppublic.h>
@@ -25,186 +26,174 @@ struct ctp_args {
 // 	return types[class];
 // }
 
+static void ctp_read_dataset(hid_t dataset_id)
+{
+	hid_t dataspace = H5Dget_space(dataset_id);
+
+	// Get the dimensions of the dataspace in storage
+	int ndims = H5Sget_simple_extent_ndims(dataspace);
+	hsize_t file_dims[ndims];
+	H5Sget_simple_extent_dims(dataspace, file_dims, NULL);
+	log_debug("Storate dimensions are: %d", ndims);
+	//count the total elements of the dataset
+	hsize_t total_elements = 1;
+	for (int i = 0; i < ndims; i++)
+		total_elements *= file_dims[i];
+
+	// Create a memory dataspace with the tile dimensions
+	hsize_t mem_dims[ndims];
+	mem_dims[0] = PARH5_TILE_SIZE;
+	for (int i = 1; i < ndims; i++)
+		mem_dims[i] = 1;
+	hid_t memspace = H5Screate_simple(ndims, mem_dims, NULL);
+
+	//Allocate the data buffer
+	hid_t datatype_id = H5Dget_type(dataset_id);
+	size_t datatype_size = H5Tget_size(datatype_id);
+	char *data = calloc(PARH5_TILE_SIZE, datatype_size);
+	memset(data, 0xFF, PARH5_TILE_SIZE * datatype_size);
+
+	hsize_t file_offset[PARH5_MAX_DIMENSIONS] = { 0 };
+	hsize_t file_count[PARH5_MAX_DIMENSIONS] = { 0 };
+	for (int i = 0; i < ndims; i++)
+		file_count[i] = 1;
+
+	//Describe the memspace
+	hsize_t mem_offset[PARH5_MAX_DIMENSIONS] = { 0 };
+	hsize_t mem_count[PARH5_MAX_DIMENSIONS] = { 0 };
+	for (int i = 0; i < ndims; i++)
+		mem_count[i] = 1;
+
+	hsize_t elements_fetched = 0;
+	while (elements_fetched < total_elements) {
+		file_count[0] = file_dims[0] - file_offset[0] < PARH5_TILE_SIZE ? file_dims[0] - file_offset[0] :
+										  PARH5_TILE_SIZE;
+
+		mem_count[0] = file_count[0];
+		if (H5Sselect_hyperslab(memspace, H5S_SELECT_SET, mem_offset, NULL, mem_count, NULL) < 0) {
+			log_fatal("Failed to select mem dataspace");
+			_exit(EXIT_FAILURE);
+		}
+
+		if (H5Sselect_hyperslab(dataspace, H5S_SELECT_SET, file_offset, NULL, file_count, NULL) < 0) {
+			log_fatal("Failed to select file dataspace");
+			_exit(EXIT_FAILURE);
+		}
+		// Read the tile into the buffer
+		if (H5Dread(dataset_id, ctp_class_to_memtype(H5Tget_class(datatype_id)), memspace, dataspace,
+			    H5P_DEFAULT, data) < 0) {
+			log_fatal("Read failed");
+			_exit(EXIT_FAILURE);
+		}
+
+		parh5_server_write_data(dataset_id, ndims, file_offset, file_count, mem_offset, mem_count, data,
+					datatype_size * PARH5_TILE_SIZE);
+
+		for (int i = 0; i < ndims; i++) {
+			file_offset[i] += file_count[i];
+			if (file_offset[i] >= file_dims[i])
+				file_offset[i] = 0;
+			file_offset[1 + 1]++;
+		}
+		elements_fetched += file_count[0];
+		log_debug("Total elements: %ld Fetched: %ld Wrote: %ld", total_elements, elements_fetched,
+			  file_count[0]);
+	}
+
+	free(data);
+}
+
 static void ctp_print_usage(void)
 {
 	log_info("Usage: hdf5_parallax_program -s <src_file_name> -d <dst_file_name>");
 }
 
-int transfer_attributes(hid_t src_obj_id, hid_t dst_obj_id)
-{
-	// Get the number of attributes
-	int num_attrs = H5Aget_num_attrs(src_obj_id);
-	if (num_attrs < 0) {
-		fprintf(stderr, "Error getting number of attributes\n");
-		return 1;
-	}
-
-	// Iterate over each attribute
-	for (int i = 0; i < num_attrs; i++) {
-		// Open the source attribute
-		hid_t src_attr_id = H5Aopen_idx(src_obj_id, (unsigned int)i);
-		if (src_attr_id < 0) {
-			fprintf(stderr, "Error opening attribute\n");
-			return 1;
-		}
-
-		// Get the attribute name
-		size_t attr_name_len = H5Aget_name(src_attr_id, 0, NULL);
-		char *attr_name = malloc((attr_name_len + 1) * sizeof(char));
-		H5Aget_name(src_attr_id, attr_name_len + 1, attr_name);
-
-		// Get the attribute datatype
-		hid_t attr_type_id = H5Aget_type(src_attr_id);
-		if (attr_type_id < 0) {
-			fprintf(stderr, "Error getting attribute datatype\n");
-			free(attr_name);
-			H5Aclose(src_attr_id);
-			return 1;
-		}
-
-		// Get the attribute dataspace
-		hid_t attr_space_id = H5Aget_space(src_attr_id);
-		if (attr_space_id < 0) {
-			fprintf(stderr, "Error getting attribute dataspace\n");
-			free(attr_name);
-			H5Tclose(attr_type_id);
-			H5Aclose(src_attr_id);
-			return 1;
-		}
-
-		// Create the corresponding attribute in the destination object
-		hid_t dst_attr_id =
-			H5Acreate(dst_obj_id, attr_name, attr_type_id, attr_space_id, H5P_DEFAULT, H5P_DEFAULT);
-		if (dst_attr_id < 0) {
-			fprintf(stderr, "Error creating attribute: %s\n", attr_name);
-			free(attr_name);
-			H5Sclose(attr_space_id);
-			H5Tclose(attr_type_id);
-			H5Aclose(src_attr_id);
-			return 1;
-		}
-
-		// Read the attribute data from the source attribute
-		void *attr_data = malloc(H5Aget_storage_size(src_attr_id));
-		if (H5Aread(src_attr_id, attr_type_id, attr_data) < 0) {
-			fprintf(stderr, "Error reading attribute data: %s\n", attr_name);
-			free(attr_data);
-			free(attr_name);
-			H5Aclose(dst_attr_id);
-			H5Sclose(attr_space_id);
-			H5Tclose(attr_type_id);
-			H5Aclose(src_attr_id);
-			return 1;
-		}
-
-		// Write the attribute data to the destination attribute
-		if (H5Awrite(dst_attr_id, attr_type_id, attr_data) < 0) {
-			fprintf(stderr, "Error writing attribute data: %s\n", attr_name);
-			free(attr_data);
-			free(attr_name);
-			H5Aclose(dst_attr_id);
-			H5Sclose(attr_space_id);
-			H5Tclose(attr_type_id);
-			H5Aclose(src_attr_id);
-			return 1;
-		}
-
-		// Close the attribute identifiers
-		free(attr_data);
-		free(attr_name);
-		H5Aclose(dst_attr_id);
-		H5Sclose(attr_space_id);
-		H5Tclose(attr_type_id);
-		H5Aclose(src_attr_id);
-	}
-
-	return 0;
-}
-
-// int ctp_copy_data(hid_t src_group_id, hid_t dst_group_id)
+// static int ctp_transfer_attributes(hid_t src_obj_id, hid_t dst_obj_id)
 // {
-// 	// Get the number of datasets in the source group
-// 	int num_datasets = H5Gget_num_objs(src_group_id);
-// 	if (num_datasets < 0) {
-// 		fprintf(stderr, "Error getting number of datasets\n");
+// 	// Get the number of attributes
+// 	int num_attrs = H5Aget_num_attrs(src_obj_id);
+// 	if (num_attrs < 0) {
+// 		fprintf(stderr, "Error getting number of attributes\n");
 // 		return 1;
 // 	}
 
-// 	// Iterate over each dataset in the source group
-// 	for (int i = 0; i < num_datasets; i++) {
-// 		// Get the dataset name
-// 		char dataset_name[256];
-// 		H5Gget_objname_by_idx(src_group_id, (hsize_t)i, dataset_name, 256);
-
-// 		// Open the source dataset
-// 		hid_t src_dataset_id = H5Dopen(src_group_id, dataset_name, H5P_DEFAULT);
-// 		if (src_dataset_id < 0) {
-// 			fprintf(stderr, "Error opening dataset: %s\n", dataset_name);
+// 	// Iterate over each attribute
+// 	for (int i = 0; i < num_attrs; i++) {
+// 		// Open the source attribute
+// 		hid_t src_attr_id = H5Aopen_idx(src_obj_id, (unsigned int)i);
+// 		if (src_attr_id < 0) {
+// 			fprintf(stderr, "Error opening attribute\n");
 // 			return 1;
 // 		}
 
-// 		// Get the source dataset datatype
-// 		if (src_datatype_id < 0) {
-// 			fprintf(stderr, "Error getting dataset datatype\n");
-// 			H5Dclose(src_dataset_id);
+// 		// Get the attribute name
+// 		size_t attr_name_len = H5Aget_name(src_attr_id, 0, NULL);
+// 		char *attr_name = malloc((attr_name_len + 1) * sizeof(char));
+// 		H5Aget_name(src_attr_id, attr_name_len + 1, attr_name);
+
+// 		// Get the attribute datatype
+// 		hid_t attr_type_id = H5Aget_type(src_attr_id);
+// 		if (attr_type_id < 0) {
+// 			fprintf(stderr, "Error getting attribute datatype\n");
+// 			free(attr_name);
+// 			H5Aclose(src_attr_id);
 // 			return 1;
 // 		}
 
-// 		// Get the source dataset dataspace
-// 		hid_t src_dataspace_id = H5Dget_space(src_dataset_id);
-// 		if (src_dataspace_id < 0) {
-// 			fprintf(stderr, "Error getting dataset dataspace\n");
-// 			H5Tclose(src_datatype_id);
-// 			H5Dclose(src_dataset_id);
+// 		// Get the attribute dataspace
+// 		hid_t attr_space_id = H5Aget_space(src_attr_id);
+// 		if (attr_space_id < 0) {
+// 			fprintf(stderr, "Error getting attribute dataspace\n");
+// 			free(attr_name);
+// 			H5Tclose(attr_type_id);
+// 			H5Aclose(src_attr_id);
 // 			return 1;
 // 		}
 
-// 		// Create the corresponding dataset in the destination group
-// 		hid_t dst_dataset_id = H5Dcreate(dst_group_id, dataset_name, src_datatype_id, src_dataspace_id,
-// 						 H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-// 		if (dst_dataset_id < 0) {
-// 			fprintf(stderr, "Error creating dataset: %s\n", dataset_name);
-// 			H5Sclose(src_dataspace_id);
-// 			H5Tclose(src_datatype_id);
-// 			H5Dclose(src_dataset_id);
+// 		// Create the corresponding attribute in the destination object
+// 		hid_t dst_attr_id =
+// 			H5Acreate(dst_obj_id, attr_name, attr_type_id, attr_space_id, H5P_DEFAULT, H5P_DEFAULT);
+// 		if (dst_attr_id < 0) {
+// 			fprintf(stderr, "Error creating attribute: %s\n", attr_name);
+// 			free(attr_name);
+// 			H5Sclose(attr_space_id);
+// 			H5Tclose(attr_type_id);
+// 			H5Aclose(src_attr_id);
 // 			return 1;
 // 		}
 
-// 		// Read the dataset data from the source dataset
-// 		double data[256]; // Assuming the dataset has at most 256 elements
-// 		if (H5Dread(src_dataset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data) < 0) {
-// 			fprintf(stderr, "Error reading data from dataset: %s\n", dataset_name);
-// 			H5Dclose(dst_dataset_id);
-// 			H5Sclose(src_dataspace_id);
-// 			H5Tclose(src_datatype_id);
-// 			H5Dclose(src_dataset_id);
+// 		// Read the attribute data from the source attribute
+// 		void *attr_data = malloc(H5Aget_storage_size(src_attr_id));
+// 		if (H5Aread(src_attr_id, attr_type_id, attr_data) < 0) {
+// 			fprintf(stderr, "Error reading attribute data: %s\n", attr_name);
+// 			free(attr_data);
+// 			free(attr_name);
+// 			H5Aclose(dst_attr_id);
+// 			H5Sclose(attr_space_id);
+// 			H5Tclose(attr_type_id);
+// 			H5Aclose(src_attr_id);
 // 			return 1;
 // 		}
 
-// 		// Write the dataset data to the destination dataset
-// 		if (H5Dwrite(dst_dataset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data) < 0) {
-// 			fprintf(stderr, "Error writing data to dataset: %s\n", dataset_name);
-// 			H5Dclose(dst_dataset_id);
-// 			H5Sclose(src_dataspace_id);
-// 			H5Tclose(src_datatype_id);
-// 			H5Dclose(src_dataset_id);
+// 		// Write the attribute data to the destination attribute
+// 		if (H5Awrite(dst_attr_id, attr_type_id, attr_data) < 0) {
+// 			fprintf(stderr, "Error writing attribute data: %s\n", attr_name);
+// 			free(attr_data);
+// 			free(attr_name);
+// 			H5Aclose(dst_attr_id);
+// 			H5Sclose(attr_space_id);
+// 			H5Tclose(attr_type_id);
+// 			H5Aclose(src_attr_id);
 // 			return 1;
 // 		}
 
-// 		// Transfer attributes from the source dataset to the destination dataset
-// 		if (transfer_attributes(src_dataset_id, dst_dataset_id) != 0) {
-// 			H5Dclose(dst_dataset_id);
-// 			H5Sclose(src_dataspace_id);
-// 			H5Tclose(src_datatype_id);
-// 			H5Dclose(src_dataset_id);
-// 			return 1;
-// 		}
-
-// 		// Close the dataset identifiers
-// 		H5Dclose(dst_dataset_id);
-// 		H5Sclose(src_dataspace_id);
-// 		H5Tclose(src_datatype_id);
-// 		H5Dclose(src_dataset_id);
+// 		// Close the attribute identifiers
+// 		free(attr_data);
+// 		free(attr_name);
+// 		H5Aclose(dst_attr_id);
+// 		H5Sclose(attr_space_id);
+// 		H5Tclose(attr_type_id);
+// 		H5Aclose(src_attr_id);
 // 	}
 
 // 	return 0;
@@ -252,10 +241,13 @@ herr_t ctp_iterate_groups(hid_t loc_id, const char *name, const H5L_info_t *info
 
 		parh5_server_dataset_create(parent->loc_id, dataset_id, name);
 		log_debug("Send command to create dataset: %s", name);
+
+		ctp_read_dataset(dataset_id);
 		// Close the dataset, datatype, and dataspace
 		H5Dclose(dataset_id);
+		return H5_ITER_CONT;
 	} else {
-		log_fatal("Link: %s is unknown", name);
+		log_fatal("Link: %s is unknown XXX TODO XXX", name);
 		_exit(EXIT_FAILURE);
 	}
 

@@ -1,4 +1,5 @@
-add_executable(parallax_server cp_to_parallax.c parallax_server.c)
+add_executable(parallax_server cp_to_parallax.c parallax_server.c
+                               parallax_common.c)
 target_include_directories(parallax_server PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(parallax_server log ${HDF5_C_LIBRARIES})
 
@@ -17,7 +18,7 @@ target_compile_options(
           -Wmisleading-indentation
           -pipe)
 
-add_executable(parallax_client parallax_client.c)
+add_executable(parallax_client parallax_client.c parallax_common.c)
 target_include_directories(parallax_client PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(parallax_client log ${HDF5_C_LIBRARIES})
 
