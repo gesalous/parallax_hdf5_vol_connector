@@ -92,7 +92,6 @@ static void parh5_client_write_data(struct parh5_cmd *cmd, hid_t fapl_id)
 		_exit(EXIT_FAILURE);
 	}
 	log_debug("Successfully wrote DATA!");
-	H5Tclose(datatype_id);
 }
 
 static void parh5_client_file_create(struct parh5_cmd *cmd, hid_t fapl_id)
