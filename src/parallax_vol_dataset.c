@@ -79,12 +79,22 @@ static bool parh5D_get_coordinates(int elem_id, int ndims, hsize_t shape[], hsiz
 				   hsize_t coords[])
 {
 	// Calculate the indices of the current element
-	for (int dim_id = ndims - 1; dim_id >= 0; dim_id--) {
+	// for (int dim_id = ndims - 1; dim_id >= 0; dim_id--) {
+	for (int dim_id = 0; dim_id < ndims; dim_id++) {
 		coords[dim_id] = elem_id % shape[dim_id];
 		elem_id /= shape[dim_id];
 		coords[dim_id] = start[dim_id] + coords[dim_id];
 		if (coords[dim_id] > end[dim_id]) {
-			log_debug("out of bounds");
+			log_debug("out of bounds for dim_id: %d coords[%d] = %ld end[%d] = %ld", dim_id, dim_id,
+				  coords[dim_id], dim_id, end[dim_id]);
+
+			log_debug("Translating elem_id was: %d, ndims: %d", elem_id, ndims);
+			for (int i = 0; i < ndims; i++) {
+				log_debug("Start[%d] = %ld", i, start[i]);
+				log_debug("End[%d] = %ld", i, end[i]);
+				log_debug("coords[%d] = %ld", i, coords[i]);
+				log_debug("shape[%d] = %ld", i, shape[i]);
+			}
 			return false;
 		}
 	}
@@ -795,7 +805,11 @@ herr_t parh5D_get(void *obj, H5VL_dataset_get_args_t *get_op, hid_t dxpl_id, voi
 	case H5VL_DATASET_GET_SPACE:
 		log_debug("HDF5 wants to know about space of dataset: %s nlinks are: %u",
 			  parh5I_get_inode_name(dataset->inode), parh5I_get_nlinks(dataset->inode));
-		get_op->args.get_space.space_id = dataset->space_id;
+		get_op->args.get_space.space_id = H5Scopy(dataset->space_id);
+		if (get_op->args.get_space.space_id < 0) {
+			log_fatal("Failed to copy space");
+			_exit(EXIT_FAILURE);
+		}
 		break;
 	case H5VL_DATASET_GET_TYPE:
 		get_op->args.get_type.type_id = dataset->type_id;
