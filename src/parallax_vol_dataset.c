@@ -19,7 +19,6 @@
 #include <unistd.h>
 
 #define PARH5D_MAX_DIMENSIONS 5
-#define PARH5D_TILE_SIZE_IN_ELEMS 1
 
 #define PARH5D_PAR_CHECK_ERROR(X)                                 \
 	if (X) {                                                  \
@@ -63,6 +62,7 @@ struct parh5D_dataset {
 	hid_t space_id; /*info about the space*/
 	hid_t type_id; /*info about its schema*/
 	hid_t dcpl_id; /*dataset creation property list*/
+	uint32_t tile_size_in_elems;
 };
 
 /**
@@ -250,17 +250,18 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 
 	uint32_t storage_elem_id = parh5D_get_id_from_coords(coords, cursor->shape, cursor->ndims);
 	uint32_t storage_tile_id = storage_elem_id;
-	uint32_t actual_tile_size = PARH5D_TILE_SIZE_IN_ELEMS;
-	if (storage_elem_id % PARH5D_TILE_SIZE_IN_ELEMS) {
-		storage_tile_id = storage_elem_id - (storage_elem_id % PARH5D_TILE_SIZE_IN_ELEMS);
-		actual_tile_size = PARH5D_TILE_SIZE_IN_ELEMS - (storage_elem_id % PARH5D_TILE_SIZE_IN_ELEMS);
+	uint32_t actual_tile_size = cursor->dataset->tile_size_in_elems;
+	if (storage_elem_id % cursor->dataset->tile_size_in_elems) {
+		storage_tile_id = storage_elem_id - (storage_elem_id % cursor->dataset->tile_size_in_elems);
+		actual_tile_size =
+			cursor->dataset->tile_size_in_elems - (storage_elem_id % cursor->dataset->tile_size_in_elems);
 	}
 
 	cursor->tile.uuid = parh5D_create_tile_uuid(parh5I_get_inode_num(dataset->inode), storage_tile_id);
 	cursor->tile.tile_buffer = mem;
 
-	cursor->tile.size_in_bytes = H5Tget_size(cursor->memtype) * PARH5D_TILE_SIZE_IN_ELEMS;
-	cursor->mem_elem_id = PARH5D_TILE_SIZE_IN_ELEMS;
+	cursor->tile.size_in_bytes = H5Tget_size(cursor->memtype) * cursor->dataset->tile_size_in_elems;
+	cursor->mem_elem_id = cursor->dataset->tile_size_in_elems;
 
 	log_debug("Tile id %u size in bytes: %u", storage_tile_id, cursor->tile.size_in_bytes);
 
@@ -274,9 +275,10 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 	}
 
 	if (PARH5D_READ_CURSOR == cursor->cursor_type && storage_tile_id != storage_elem_id) {
-		int offt_in_tile = H5Tget_size(cursor->memtype) * (storage_elem_id % PARH5D_TILE_SIZE_IN_ELEMS);
-		int size = H5Tget_size(cursor->memtype) *
-			   (PARH5D_TILE_SIZE_IN_ELEMS - storage_tile_id % PARH5D_TILE_SIZE_IN_ELEMS);
+		int offt_in_tile =
+			H5Tget_size(cursor->memtype) * (storage_elem_id % cursor->dataset->tile_size_in_elems);
+		int size = H5Tget_size(cursor->memtype) * (cursor->dataset->tile_size_in_elems -
+							   storage_tile_id % cursor->dataset->tile_size_in_elems);
 		if (!parh5D_fetch_partial_tile(cursor, cursor->tile.uuid, cursor->mem_buf, offt_in_tile, 0, size)) {
 			log_fatal("Tile with dset_id %lu tile_id: %lu does not exist! (It should)",
 				  cursor->tile.uuid.dset_id, cursor->tile.uuid.tile_id);
@@ -287,11 +289,12 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 		return cursor;
 	}
 
-	if (cursor->tile.size_in_bytes > cursor->nelems * H5Tget_size(cursor->memtype)) {
-		log_fatal("Subtile access tile size in bytes is %u actual %lu", cursor->tile.size_in_bytes,
-			  cursor->nelems * H5Tget_size(cursor->memtype));
-		_exit(EXIT_FAILURE);
-	}
+	// if (cursor->tile.size_in_bytes > cursor->nelems * H5Tget_size(cursor->memtype)) {
+	// 	log_fatal("Subtile access tile size in bytes is %u actual %lu for cursor: %s",
+	// 		  cursor->tile.size_in_bytes, cursor->nelems * H5Tget_size(cursor->memtype),
+	// 		  PARH5D_WRITE_CURSOR == cursor->cursor_type ? "PARH5D_WRITE_CURSOR" : "PARH5D_READ_CURSOR");
+	// 	_exit(EXIT_FAILURE);
+	// }
 	/*The first tile is the one of the in memory array*/
 	if (PARH5D_WRITE_CURSOR == cursor->cursor_type && storage_tile_id == storage_elem_id) {
 		log_debug("Ok all same");
@@ -303,7 +306,7 @@ static struct parh5D_tile_cursor *parh5D_create_tile_cursor(parh5D_dataset_t dat
 	cursor->tile.malloced = true;
 	parh5D_fetch_tile(cursor, cursor->tile.uuid, cursor->tile.tile_buffer, cursor->tile.size_in_bytes);
 
-	memcpy(&cursor->tile.tile_buffer[storage_elem_id % PARH5D_TILE_SIZE_IN_ELEMS], cursor->mem_buf,
+	memcpy(&cursor->tile.tile_buffer[storage_elem_id % cursor->dataset->tile_size_in_elems], cursor->mem_buf,
 	       actual_tile_size * H5Tget_size(memtype));
 	cursor->mem_elem_id = actual_tile_size;
 
@@ -351,8 +354,8 @@ static bool parh5D_advance_tile_cursor(struct parh5D_tile_cursor *cursor)
 		(char *)((uint64_t)cursor->mem_buf + cursor->mem_elem_id * H5Tget_size(cursor->memtype));
 	uint32_t remaining_in_mem_buffer = cursor->nelems - cursor->mem_elem_id;
 
-	if (remaining_in_mem_buffer >= PARH5D_TILE_SIZE_IN_ELEMS) {
-		cursor->mem_elem_id += PARH5D_TILE_SIZE_IN_ELEMS;
+	if (remaining_in_mem_buffer >= cursor->dataset->tile_size_in_elems) {
+		cursor->mem_elem_id += cursor->dataset->tile_size_in_elems;
 		return PARH5D_WRITE_CURSOR == cursor->cursor_type ?
 			       true :
 			       parh5D_fetch_tile(cursor, cursor->tile.uuid, cursor->tile.tile_buffer,
@@ -484,6 +487,13 @@ static parh5D_dataset_t parh5D_read_dataset(parh5G_group_t group, uint64_t inode
 	return dataset;
 }
 
+static void parh5D_set_tile_size(parh5D_dataset_t dataset)
+{
+	// Get the class of the datatype
+	H5T_class_t class_id = H5Tget_class(dataset->type_id);
+	dataset->tile_size_in_elems = class_id == H5T_FLOAT || class_id == H5T_INTEGER ? 32 : 1;
+}
+
 void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t type_id,
 		    hid_t space_id, hid_t dcpl_id, hid_t dapl_id, hid_t dxpl_id, void **req)
 {
@@ -524,6 +534,7 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 				  parh5G_get_parallax_db(parent_group));
 	parh5I_store_inode(parh5G_get_inode(parent_group), parh5G_get_parallax_db(parent_group));
 
+	parh5D_set_tile_size(dataset);
 	log_debug("Dimensions of new dataspace are %d", H5Sget_simple_extent_ndims(dataset->space_id));
 
 	return dataset;
@@ -557,6 +568,7 @@ void *parh5D_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 	}
 
 	parh5D_dataset_t dataset = parh5D_read_dataset(parent_group, inode_num);
+	parh5D_set_tile_size(dataset);
 	assert(dataset);
 	return dataset;
 }
@@ -762,23 +774,23 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 
 	hsize_t mem_shape[PARH5D_MAX_DIMENSIONS] = { 0 };
 	int mem_dimensions = H5Sget_simple_extent_dims(real_mem_space_id, mem_shape, NULL);
-	log_debug("Mem space dimensions: %d", mem_dimensions);
-	for (int i = 0; i < mem_dimensions; i++)
-		log_debug("mem dimension[%d] = %ld", i, mem_shape[i]);
+	// log_debug("Mem space dimensions: %d", mem_dimensions);
+	// for (int i = 0; i < mem_dimensions; i++)
+	// 	log_debug("mem dimension[%d] = %ld", i, mem_shape[i]);
 	hsize_t file_shape[PARH5D_MAX_DIMENSIONS] = { 0 };
 	int file_dimensions = H5Sget_simple_extent_dims(real_file_space_id, file_shape, NULL);
-	log_debug("File space dimensions %d", file_dimensions);
-	for (int i = 0; i < file_dimensions; i++)
-		log_debug("file dimension[%d] = %ld", i, file_shape[i]);
+	// log_debug("File space dimensions %d", file_dimensions);
+	// for (int i = 0; i < file_dimensions; i++)
+	// 	log_debug("file dimension[%d] = %ld", i, file_shape[i]);
 	hsize_t start_coords[PARH5D_MAX_DIMENSIONS];
 	hsize_t end_coords[PARH5D_MAX_DIMENSIONS];
 	H5Sget_select_bounds(real_file_space_id, start_coords, end_coords);
-	for (int i = 0; i < file_dimensions; i++) {
-		log_debug("start dimension[%d] = %ld", i, start_coords[i]);
-	}
-	for (int i = 0; i < file_dimensions; i++) {
-		log_debug("end dimension[%d] = %ld", i, end_coords[i]);
-	}
+	// for (int i = 0; i < file_dimensions; i++) {
+	// 	log_debug("start dimension[%d] = %ld", i, start_coords[i]);
+	// }
+	// for (int i = 0; i < file_dimensions; i++) {
+	// 	log_debug("end dimension[%d] = %ld", i, end_coords[i]);
+	// }
 
 	struct parh5D_tile_cursor *cursor = parh5D_create_tile_cursor(dataset, (void *)buf[0], mem_type_id[0],
 								      real_file_space_id, PARH5D_WRITE_CURSOR);
