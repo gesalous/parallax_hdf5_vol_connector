@@ -91,7 +91,7 @@ static void parh5_client_write_data(struct parh5_cmd *cmd, hid_t fapl_id)
 		log_fatal("Write failed");
 		_exit(EXIT_FAILURE);
 	}
-	log_debug("Successfully wrote DATA!");
+	// log_debug("Successfully wrote DATA!");
 }
 
 static void parh5_client_file_create(struct parh5_cmd *cmd, hid_t fapl_id)
@@ -198,10 +198,11 @@ int main(void)
 								 parh5_client_dataset_create, parh5_client_write_data };
 	const char *fifo_path = PARH5_QUEUE_NAME;
 
-	// Create the FIFO queue if it doesn't exist
-	if (mkfifo(fifo_path, 0666) < 0) {
-		log_warn("Failed to create FIFO queue for reading");
+	// Check if the FIFO exists
+	if (access(fifo_path, F_OK) != 0 && mkfifo(fifo_path, 0666) < 0) {
+		log_fatal("Failed to create FIFO queue for reading");
 		perror("Reason:");
+		_exit(EXIT_FAILURE);
 	}
 
 	// Open the FIFO queue for reading
