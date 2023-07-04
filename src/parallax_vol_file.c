@@ -29,6 +29,14 @@ struct parh5F_file {
 	unsigned int flags; /*READ ONLY, RDWR etc*/
 };
 
+static const char *parhF_ignore_cur_dir(const char *name)
+{
+	if (!name || strlen(name) < 2)
+		return name;
+
+	return '.' == name[0] && '/' == name[1] ? &name[2] : name;
+}
+
 static hid_t parh5F_get_fcpl(parh5F_file_t file)
 {
 	parh5G_group_t root_group = parh5F_get_root_group(file);
@@ -154,17 +162,15 @@ void *parh5F_create(const char *name, unsigned flags, hid_t fcpl_id, hid_t fapl_
 		"creating new file: %s flags %s Does it want a POSIX FD?: %s Does it want to use file locking? %s Does it want to ignore disabled file locks? %s",
 		name, parh5F_flags2s(flags), want_posix_fd ? yes : no, use_file_locking ? yes : no,
 		ignore_disabled_file_locks ? yes : no);
+	name = parhF_ignore_cur_dir(name);
 	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, fcpl_id, flags);
 }
 
 void *parh5F_open(const char *name, unsigned flags, hid_t fapl_id, hid_t dxpl_id, void **req)
 {
-	(void)name;
-	(void)flags;
-	(void)fapl_id;
 	(void)dxpl_id;
 	(void)req;
-
+	name = parhF_ignore_cur_dir(name);
 	log_debug("Opening file name: %s flags %s", name, parh5F_flags2s(flags));
 	return parh5F_new_file(name, PAR_CREATE_DB, fapl_id, 0, flags);
 }

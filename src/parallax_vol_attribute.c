@@ -107,6 +107,7 @@ static bool parh5A_store_attr(parh5A_attribute_t attr)
 		file = parh5G_get_file(attr->parent.group);
 	} else {
 		log_fatal("Cannot handle this type of object");
+		assert(0);
 		_exit(EXIT_FAILURE);
 	}
 	assert(inode);
@@ -365,8 +366,11 @@ void *parh5A_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	(void)dxpl_id;
 	(void)req;
 
-	if (loc_params->obj_type != H5I_DATASET && loc_params->obj_type != H5I_GROUP) {
-		log_fatal("Sorry handling attributes only for datasets at the moment");
+	if (loc_params->obj_type != H5I_DATASET && loc_params->obj_type != H5I_GROUP &&
+	    loc_params->obj_type != H5I_FILE) {
+		log_fatal(
+			"Sorry handling attributes only for datasets, groups, and files at the moment current type is: %d",
+			loc_params->obj_type);
 		_exit(EXIT_FAILURE);
 	}
 
@@ -378,12 +382,16 @@ void *parh5A_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 		attr->parent.dataset = obj;
 		inode = parh5D_get_inode(obj);
 		parallax_db = parh5F_get_parallax_db(parh5D_get_file(obj));
-	}
-
-	if (H5I_GROUP == attr->parent.type) {
+	} else if (H5I_GROUP == attr->parent.type) {
 		attr->parent.group = obj;
 		inode = parh5G_get_inode(obj);
 		parallax_db = parh5G_get_parallax_db(obj);
+	} else if (H5I_FILE == attr->parent.type) {
+		parh5F_file_t file = obj;
+		attr->parent.group = parh5F_get_root_group(file);
+		attr->parent.type = H5I_GROUP;
+		inode = parh5G_get_inode(parh5F_get_root_group(file));
+		parallax_db = parh5F_get_parallax_db(file);
 	}
 
 	parh5D_dataset_t dataset = (parh5D_dataset_t)obj;
@@ -411,27 +419,31 @@ void *parh5A_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 void *parh5A_open(void *obj, const H5VL_loc_params_t *loc_params, const char *attr_name, hid_t aapl_id, hid_t dxpl_id,
 		  void **req)
 {
-	(void)obj;
 	(void)loc_params;
 	(void)attr_name;
 	(void)aapl_id;
 	(void)dxpl_id;
 	(void)req;
 	H5I_type_t *type = obj;
-	if (H5I_FILE == *type)
-		log_debug("Opening attribute for FILE");
+
+	if (H5I_FILE == *type) {
+		log_debug("Opening attribute for FILE fetching root group");
+		obj = parh5F_get_root_group(obj);
+		type = obj;
+	}
+
 	if (H5I_GROUP == *type)
 		log_debug("Opening attribute for GROUP");
+
 	if (H5I_DATASET == *type) {
 		log_debug("Opening attribute: %s for DATASET: %s", attr_name, parh5D_get_dataset_name(obj));
 	}
+
 	struct parh5A_object parent = { .type = *type, .group = obj };
 	parh5A_attribute_t attr = parh5A_get_attr(attr_name, &parent);
-	log_debug("Open attr length of value is: %lu", strlen(attr->value) + 1);
+	if (attr)
+		log_debug("Open attr length of value is: %lu", strlen(attr->value) + 1);
 	return attr;
-
-	// log_debug("Sorry unimplemented method");
-	// _exit(EXIT_FAILURE);
 }
 
 #define PARH5A_MAX_ATTR_SIZE 128
@@ -493,17 +505,16 @@ herr_t parh5A_write(void *obj, hid_t mem_type_id, const void *buf, hid_t dxpl_id
 		log_fatal("Sorry types mismatch");
 		_exit(EXIT_FAILURE);
 	}
-	log_debug("Before-->Attr value size: %u actual mem type size: %lu buf actual size: %lu", attr->value_size,
-		  H5Tget_size(mem_type_id), strlen(buf));
+	// log_debug("Before-->Attr value size: %u actual mem type size: %lu buf actual size: %lu", attr->value_size,
+	// 	  H5Tget_size(mem_type_id), strlen(buf));
 	if (attr->value_size < H5Tget_size(mem_type_id)) {
 		attr->value = calloc(1UL, H5Tget_size(mem_type_id));
 		attr->value_size = H5Tget_size(mem_type_id);
 	}
-	log_debug("After-->Attr value size: %u actual mem type size: %lu", attr->value_size, H5Tget_size(mem_type_id));
+	// log_debug("After-->Attr value size: %u actual mem type size: %lu", attr->value_size, H5Tget_size(mem_type_id));
 	memcpy(attr->value, buf, H5Tget_size(mem_type_id));
-	log_debug("Contents of attribute before storing in Parallax are");
-	parh5A_print_buffer_Hex((const unsigned char *)buf, attr->value_size);
-	raise(SIGINT);
+	// log_debug("Contents of attribute before storing in Parallax are");
+	// parh5A_print_buffer_Hex((const unsigned char *)buf, attr->value_size);
 	parh5A_store_attr(attr);
 	return PARH5_SUCCESS;
 }

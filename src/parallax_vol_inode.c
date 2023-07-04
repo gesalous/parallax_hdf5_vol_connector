@@ -426,9 +426,9 @@ bool parh5I_store_inode(parh5I_inode_t inode, par_handle par_db)
 		log_fatal("Failed to store inode of group %s", inode->name);
 		_exit(EXIT_FAILURE);
 	}
-	log_debug("*******<STORED inode>");
-	parh5I_print_inode(inode);
-	log_debug("*******</STORED inode>");
+	// log_debug("*******<STORED inode>");
+	// parh5I_print_inode(inode);
+	// log_debug("*******</STORED inode>");
 	return true;
 }
 
