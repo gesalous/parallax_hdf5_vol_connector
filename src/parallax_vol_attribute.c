@@ -290,8 +290,8 @@ static parh5A_attribute_t parh5A_get_attr(const char *attr_name, struct parh5A_o
 	free(par_value.val_buffer);
 	log_debug("Attribute: %s value size: %u contents: %.*s", attr_name, attribute->value_size,
 		  attribute->value_size, attribute->value);
-	log_debug("Attr key in parallax");
-	parh5A_print_buffer_Hex((const unsigned char *)key_buffer, sizeof(key_buffer));
+	// log_debug("Attr key in parallax");
+	// parh5A_print_buffer_Hex((const unsigned char *)key_buffer, sizeof(key_buffer));
 	return attribute;
 }
 
@@ -483,10 +483,10 @@ herr_t parh5A_read(void *_attr, hid_t mem_type_id, void *buf, hid_t dxpl_id, voi
 	}
 
 	memcpy(buf, intermediate_buf, attr->value_size);
-	log_debug("Reading attr: %s value: size: %u buf size: %lu contents:", attr->name, attr->value_size,
-		  strlen(buf));
+	log_debug("Reading attr: %s value: size: %u buf size: %lu contents: %.*s", attr->name, attr->value_size,
+		  strlen(buf), attr->value_size, attr->value);
 
-	parh5A_print_buffer_Hex((const unsigned char *)intermediate_buf, attr->value_size);
+	// parh5A_print_buffer_Hex((const unsigned char *)intermediate_buf, attr->value_size);
 
 	return PARH5_SUCCESS;
 }
@@ -539,6 +539,13 @@ herr_t parh5A_get(void *obj, H5VL_attr_get_args_t *args, hid_t dxpl_id, void **r
 	if (H5VL_ATTR_GET_TYPE == args->op_type) {
 		args->args.get_type.type_id = H5Tcopy(attr->type_id);
 		log_debug("OK answered H5VL_ATTR_GET_TYPE for attr: %s", attr->name);
+		return PARH5_SUCCESS;
+	}
+	if (H5VL_ATTR_GET_STORAGE_SIZE == args->op_type) {
+		*args->args.get_storage_size.data_size = attr->value_size;
+		log_debug("OK answered H5VL_ATTR_GET_STORAGE_SIZE for attr: %s which is %u", attr->name,
+			  attr->value_size);
+		assert(attr->value_size);
 		return PARH5_SUCCESS;
 	}
 	log_debug("Sorry unimplemented method for type: %d XXX TODO XXX", args->op_type);
