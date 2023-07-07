@@ -3,7 +3,6 @@
 #include "H5Spublic.h"
 #include "H5Tpublic.h"
 #include "H5public.h"
-#include "murmurhash.h"
 #include "parallax_vol_connector.h"
 #include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
@@ -323,7 +322,7 @@ static void parh5D_set_tile_size(parh5D_dataset_t dataset)
 {
 	// Get the class of the datatype
 	H5T_class_t class_id = H5Tget_class(dataset->type_id);
-	dataset->tile_size_in_elems = class_id == H5T_FLOAT || class_id == H5T_INTEGER ? 32 : 1;
+	dataset->tile_size_in_elems = class_id == H5T_FLOAT || class_id == H5T_INTEGER ? 64 : 1;
 }
 
 void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t type_id,
