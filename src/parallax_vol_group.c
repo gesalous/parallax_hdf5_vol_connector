@@ -16,6 +16,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef METRICS_ENABLE
+#include "parallax_vol_metrics.h"
+#endif
 #define PARH5G_CHECK_REMAINING(X, Y)                               \
 	if (X < Y) {                                               \
 		log_fatal("Inode metadata buffer size too small"); \
@@ -114,6 +117,9 @@ parh5G_group_t parh5G_create_group(parh5F_file_t file, const char *name, hid_t a
 					   parh5F_get_parallax_db(file));
 	parh5G_serialize_group_metadata(group);
 	parh5I_store_inode(group->inode, parh5F_get_parallax_db(file));
+#ifdef METRICS_ENABLE
+	parh5M_inc_group_bytes_written(group, parh5I_get_inode_size());
+#endif
 
 	return group;
 }
@@ -189,6 +195,9 @@ void *parh5G_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 	uint64_t inode_num = parh5I_path_search(parent_group->inode, name, parh5G_get_parallax_db(parent_group));
 
 	if (inode_num) {
+#ifdef METRICS_ENABLE
+		parh5M_inc_group_bytes_read(parent_group, parh5I_get_inode_size());
+#endif
 		parh5I_inode_t inode = parh5I_get_inode(parh5F_get_parallax_db(parent_group->file), inode_num);
 
 		if (!inode) {
@@ -203,6 +212,9 @@ void *parh5G_open(void *obj, const H5VL_loc_params_t *loc_params, const char *na
 	par_handle par_db = parh5G_get_parallax_db(new_group);
 	//save inode to parallax
 	parh5I_store_inode(new_group->inode, parh5G_get_parallax_db(parent_group));
+#ifdef METRICS_ENABLE
+	parh5M_inc_group_bytes_written(new_group, parh5I_get_inode_size());
+#endif
 	//inform the parent
 	if (!parh5I_add_pivot_in_inode(parent_group->inode, parh5I_get_inode_num(new_group->inode), name, par_db)) {
 		log_fatal("inode of parent group needs resizing XXX TODO XXX");

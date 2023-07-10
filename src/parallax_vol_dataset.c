@@ -16,8 +16,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef METRICS_ENABLE
+#include "parallax_vol_metrics.h"
+#endif
 
 #define PARH5D_MAX_DIMENSIONS 5
+#define PARH5D_CONTIGUOUS_TILE_SIZE 1024
 
 #define PARH5D_PAR_CHECK_ERROR(X)                                 \
 	if (X) {                                                  \
@@ -133,6 +137,10 @@ static inline hsize_t parh5D_get_id_from_coords(hsize_t coords[], hsize_t shape[
 static size_t parh5D_read_from_tile(parh5D_dataset_t dataset, struct parh5D_tile tile, char mem_buf[],
 				    size_t mem_buf_size)
 {
+#ifdef METRICS_ENABLE
+	parh5M_inc_dset_read_ntiles(dataset);
+#endif
+
 	size_t tile_size = dataset->tile_size_in_elems * H5Tget_size(dataset->type_id);
 	bool subtile_access = tile.offt_in_tile || mem_buf_size < tile_size ? true : false;
 
@@ -142,6 +150,9 @@ static size_t parh5D_read_from_tile(parh5D_dataset_t dataset, struct parh5D_tile
 	if (subtile_access) { //Misaligned access
 		par_value.val_buffer = calloc(dataset->tile_size_in_elems, H5Tget_size(dataset->type_id));
 		par_value.val_buffer_size = tile_size;
+#ifdef METRICS_ENABLE
+		parh5M_inc_read_misaligned_access(dataset);
+#endif
 	}
 
 	if (par_value.val_buffer_size < tile_size) {
@@ -176,6 +187,9 @@ static size_t parh5D_read_from_tile(parh5D_dataset_t dataset, struct parh5D_tile
 static size_t parh5D_write_tile(parh5D_dataset_t dataset, struct parh5D_tile tile, const char mem_buf[],
 				size_t mem_buf_size)
 {
+#ifdef METRICS_ENABLE
+	parh5M_inc_dset_write_ntiles(dataset);
+#endif
 	size_t tile_size = dataset->tile_size_in_elems * H5Tget_size(dataset->type_id);
 
 	if (mem_buf_size > tile_size - tile.offt_in_tile) {
@@ -197,6 +211,9 @@ static size_t parh5D_write_tile(parh5D_dataset_t dataset, struct parh5D_tile til
 		// if (error)
 		// 	log_debug("Ok tile not found don't worry it is normal reason: %s", error);
 		memcpy(&par_value.val_buffer[tile.offt_in_tile], mem_buf, mem_buf_size);
+#ifdef METRICS_ENABLE
+		parh5M_inc_write_misaligned_access(dataset);
+#endif
 	}
 
 	assert(par_value.val_size);
@@ -263,6 +280,9 @@ static bool parh5D_store_dataset(parh5D_dataset_t dset)
 	idx += space_needed;
 	remaining_bytes -= space_needed;
 	parh5I_store_inode(dset->inode, parh5F_get_parallax_db(dset->file));
+#ifdef METRICS_ENABLE
+	parh5M_inc_dset_metadata_bytes_written(dset, parh5I_get_inode_size());
+#endif
 	return true;
 }
 
@@ -299,29 +319,36 @@ static void parh5D_deserialize_dataset(parh5D_dataset_t dataset)
 
 parh5D_dataset_t parh5D_open_dataset(parh5I_inode_t inode, parh5F_file_t file)
 {
-	parh5D_dataset_t dataset = calloc(1UL, sizeof(*dataset));
-	dataset->type = H5I_DATASET;
-	dataset->inode = inode;
-	dataset->file = file;
-	parh5D_deserialize_dataset(dataset);
-	return dataset;
+	parh5D_dataset_t dset = calloc(1UL, sizeof(*dset));
+	dset->type = H5I_DATASET;
+	dset->inode = inode;
+	dset->file = file;
+	parh5D_deserialize_dataset(dset);
+	return dset;
 }
 
 static parh5D_dataset_t parh5D_read_dataset(parh5G_group_t group, uint64_t inode_num)
 {
 	parh5I_inode_t inode = parh5I_get_inode(parh5G_get_parallax_db(group), inode_num);
-	parh5D_dataset_t dataset = calloc(1UL, sizeof(*dataset));
-	dataset->type = H5I_DATASET;
-	dataset->file = parh5G_get_file(group);
-	dataset->inode = inode;
-	parh5D_deserialize_dataset(dataset);
-	return dataset;
+	parh5D_dataset_t dset = calloc(1UL, sizeof(*dset));
+	dset->type = H5I_DATASET;
+	dset->file = parh5G_get_file(group);
+	dset->inode = inode;
+	parh5D_deserialize_dataset(dset);
+#ifdef METRICS_ENABLE
+	parh5M_inc_dset_metadata_bytes_read(dset, parh5I_get_inode_size());
+#endif
+	return dset;
 }
 
 static void parh5D_set_tile_size(parh5D_dataset_t dataset)
 {
-	// Get the class of the datatype
+	H5D_layout_t layout = H5Pget_layout(dataset->dcpl_id);
 	H5T_class_t class_id = H5Tget_class(dataset->type_id);
+	if ((class_id == H5T_FLOAT || class_id == H5T_INTEGER) && layout == H5D_CONTIGUOUS) {
+		dataset->tile_size_in_elems = PARH5D_CONTIGUOUS_TILE_SIZE;
+		return;
+	}
 	dataset->tile_size_in_elems = class_id == H5T_FLOAT || class_id == H5T_INTEGER ? 64 : 1;
 }
 
@@ -331,7 +358,6 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 	(void)loc_params;
 	(void)name;
 	(void)lcpl_id;
-	(void)dcpl_id;
 	(void)dapl_id;
 	(void)req;
 	(void)dxpl_id;
@@ -348,6 +374,19 @@ void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *
 		log_fatal("Dataset can only be associated with a group/file object");
 		_exit(EXIT_FAILURE);
 	}
+
+	// Get the storage layout from the dataset creation property list
+	// H5D_layout_t layout = H5Pget_layout(dcpl_id);
+
+	// Print the storage layout
+	// if (layout == H5D_CHUNKED)
+	// 	fprintf(stderr, "Storage Layout: Chunked for dataset: %s\n", name);
+	// else if (layout == H5D_CONTIGUOUS)
+	// 	fprintf(stderr, "Storage Layout: Contiguous for dataset: %s\n", name);
+	// else if (layout == H5D_COMPACT)
+	// 	fprintf(stderr, "Storage Layout: Compact for dataset %s\n", name);
+	// else
+	// 	fprintf(stderr, "Storage Layout: Unknown\n");
 
 	parh5D_dataset_t dataset = calloc(1UL, sizeof(struct parh5D_dataset));
 	dataset->type = H5I_DATASET;
@@ -473,6 +512,11 @@ herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_sp
 
 	hsize_t tile_size = dataset->tile_size_in_elems * H5Tget_size(dataset->type_id);
 	size_t mem_buf_size = num_elem_mem * H5Tget_size(mem_type_id[0]);
+
+#ifdef METRICS_ENABLE
+	parh5M_inc_dset_bytes_read(dataset, mem_buf_size);
+#endif
+
 	char *mem_buf = buf[0];
 	size_t total_bytes_read = 0;
 	for (hssize_t mem_elem_id = 0; mem_elem_id < num_elem_mem;) {
@@ -664,6 +708,11 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 
 	hsize_t tile_size = dataset->tile_size_in_elems * H5Tget_size(dataset->type_id);
 	size_t mem_buf_size = num_elem_mem * H5Tget_size(dataset->type_id);
+
+#ifdef METRICS_ENABLE
+	parh5M_inc_dset_bytes_written(dataset, mem_buf_size);
+#endif
+
 	const char *mem_buf = buf[0];
 	size_t total_bytes_written = 0;
 	for (hssize_t mem_elem_id = 0; mem_elem_id < num_elem_mem;) {
