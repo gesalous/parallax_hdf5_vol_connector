@@ -70,6 +70,11 @@ char *parh5I_get_inode_metadata_buf(parh5I_inode_t inode)
 	return inode ? inode->metadata : NULL;
 }
 
+size_t parh5I_get_inode_size(void)
+{
+	return sizeof(struct parh5I_inode);
+}
+
 size_t parh5I_get_inode_metadata_size(void)
 {
 	return PARH5I_GROUP_METADATA_BUFFER_SIZE;
