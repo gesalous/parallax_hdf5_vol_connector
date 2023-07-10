@@ -89,7 +89,7 @@ endif()
 # Fetch Parallax project
 FetchContent_Declare(
   parallax
-  GIT_REPOSITORY git@carvgit.ics.forth.gr:storage/parallax.git
+  GIT_REPOSITORY git@github.com:CARV-ICS-FORTH/parallax.git
   GIT_TAG extra_hdf5_functionality
   GIT_PROGRESS TRUE)
 
