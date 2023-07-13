@@ -18,8 +18,10 @@
 #ifndef _parallax_vol_connector_H
 #define _parallax_vol_connector_H
 #include <hdf5.h>
-#define PARALLAX_VOLUME "/home/gesalous/parallax-test/par.dat"
-#define PARALLAX_L0_SIZE (8 * 1024 * 1024);
+#define PARALLAX_VOLUME_ENV_VAR "PARH5_VOLUME"
+#define PARALLAX_VOLUME_FORMAT_ENV_VAR "PARH5_VOLUME_FORMAT"
+#define PARALLAX_VOLUME "par.dat"
+#define PARALLAX_L0_SIZE (16 * 1024 * 1024);
 #define PARALLAX_GROWTH_FACTOR 8
 /* The value must be between 256 and 65535 (inclusive) */
 #define PARALLAX_VOL_CONNECTOR_VALUE ((H5VL_class_value_t)12202)
@@ -32,6 +34,8 @@
 #define PARH5_WANT_POSIX_FD "want_posix_fd"
 #define PARH5_USE_FILE_LOCKING "use_file_locking"
 #define PARH5_IGNORE_DISABLED_FILE_LOCKS "ignore_disabled_file_locks"
+
+#define METRICS_ENABLE
 
 // typedef enum { PARH5_FILE = 1, PARH5_GROUP = 2, PARH5_DATASET = 3 } parh5_object_e;
 

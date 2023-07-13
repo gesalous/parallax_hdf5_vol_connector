@@ -14,15 +14,16 @@
  *              functionality that can serve as a template for creating other
  *              connectors.
  */
-
 /* This connector's header */
 #include "parallax_vol_connector.h"
+#include "parallax/parallax.h"
 #include "parallax_vol_attribute.h"
 #include "parallax_vol_dataset.h"
 #include "parallax_vol_file.h"
 #include "parallax_vol_group.h"
 #include "parallax_vol_introspect.h"
 #include "parallax_vol_links.h"
+#include "parallax_vol_metrics.h"
 #include "parallax_vol_object.h"
 #include <H5PLextern.h>
 #include <assert.h>
@@ -31,6 +32,10 @@
 #include <log.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <string.h>
+
+const char *parh5_volume;
+const char *parh5_format_volume;
 
 struct parh5_connector_state {
 	pthread_rwlock_t file_map_lock;
@@ -59,8 +64,22 @@ herr_t parh5_initialize(hid_t vipl_id)
 #ifdef PARH5_DISABLE_LOGGING
 	log_set_level(LOG_INFO);
 #endif
-	log_debug("Initialized parallax plugin");
-	return 1;
+
+	parh5_volume = getenv(PARALLAX_VOLUME_ENV_VAR);
+	if (NULL == parh5_volume)
+		parh5_volume = PARALLAX_VOLUME;
+
+	parh5_format_volume = getenv(PARALLAX_VOLUME_FORMAT_ENV_VAR);
+	if (NULL != parh5_volume) {
+		const char *error = par_format((char *)parh5_volume, 128);
+		if (error) {
+			log_fatal("Failed to format volume: %s reason: %s", parh5_volume, error);
+		}
+		log_debug("Formatted volume: %s SUCCESSFULLY", parh5_volume);
+	}
+
+	log_debug("Initialized parallax plugin using Parallax volume: %s", parh5_volume);
+	return PARH5_SUCCESS;
 }
 
 herr_t parh5_terminate(void)
@@ -68,6 +87,13 @@ herr_t parh5_terminate(void)
 	free(connector);
 	connector = NULL;
 	log_debug("Closed parallax plugin");
+#ifdef METRICS_ENABLE
+	const char *report = parh5M_dump_report();
+	printf("<***** Report *******>\n");
+	printf("%s", report);
+	printf("<***** /Report *******>\n");
+	free((void *)report);
+#endif
 	return 1;
 }
 /* The VOL class struct */

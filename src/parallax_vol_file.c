@@ -28,6 +28,7 @@ struct parh5F_file {
 	par_handle db;
 	unsigned int flags; /*READ ONLY, RDWR etc*/
 };
+extern const char *parh5_volume;
 
 static const char *parhF_ignore_cur_dir(const char *name)
 {
@@ -76,7 +77,7 @@ inline par_handle parh5F_get_parallax_db(parh5F_file_t file)
 static parh5F_file_t parh5F_new_file(const char *file_name, enum par_db_initializers open_flag, hid_t fapl_id,
 				     hid_t fcpl_id, unsigned int flags)
 {
-	par_db_options db_options = { .volume_name = PARALLAX_VOLUME,
+	par_db_options db_options = { .volume_name = (char *)parh5_volume,
 				      .create_flag = open_flag,
 				      .db_name = file_name,
 				      .options = par_get_default_options() };
@@ -440,11 +441,11 @@ herr_t parh5F_close(void *file, hid_t dxpl_id, void **req)
 		_exit(EXIT_FAILURE);
 	}
 	parh5F_file_t par_file = file;
-	log_debug("Closing file: %s", par_file->name);
-	parh5F_close_parallax_db(file);
-	parh5G_group_t root_group = parh5F_get_root_group(file);
-	parh5G_close(root_group, 0, NULL);
-	log_debug("Closing file: %s....SUCCESS", par_file->name);
+	// log_debug("Closing file: %s", par_file->name);
+	// parh5F_close_parallax_db(file);
+	// parh5G_group_t root_group = parh5F_get_root_group(file);
+	// parh5G_close(root_group, 0, NULL);
+	// log_debug("Closing file: %s....SUCCESS", par_file->name);
 	free((char *)par_file->name);
 	free(par_file);
 
