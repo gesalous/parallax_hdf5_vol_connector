@@ -12,6 +12,11 @@ add_executable(test_dirs test_dirs.c)
 target_include_directories(test_dirs PRIVATE "${project_source_dir}/src")
 target_link_libraries(test_dirs log ${HDF5_C_LIBRARIES})
 
+add_executable(test_multi_dimensions test_multi_dimensions.c)
+target_include_directories(test_multi_dimensions
+                           PRIVATE "${project_source_dir}/src")
+target_link_libraries(test_multi_dimensions log ${HDF5_C_LIBRARIES})
+
 # Add the test
 add_test(vol_plugin vol_plugin)
 set_tests_properties(
@@ -28,3 +33,9 @@ set_tests_properties(
 add_test(test_dirs test_dirs)
 set_tests_properties(
   test_dirs PROPERTIES ENVIRONMENT "HDF5_PLUGIN_PATH=${PROJECT_BINARY_DIR}/src")
+
+# Add the test
+add_test(test_multi_dimensions test_multi_dimensions)
+set_tests_properties(
+  test_multi_dimensions PROPERTIES ENVIRONMENT
+                                   "HDF5_PLUGIN_PATH=${PROJECT_BINARY_DIR}/src")
