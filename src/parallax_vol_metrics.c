@@ -11,8 +11,9 @@ struct parh5M_metrics {
 	uint64_t dset_metadata_bytes_read;
 	uint64_t dset_metadata_write_ops;
 	uint64_t dset_metadata_bytes_written;
-	uint64_t dset_read_misalinged_accesses;
-	uint64_t dset_write_misalinged_accesses;
+	uint64_t dset_cache_misses;
+	uint64_t dset_cache_hits;
+	uint64_t dset_partially_written_tiles;
 	uint64_t group_bytes_read;
 	uint64_t group_read_ops;
 	uint64_t group_bytes_written;
@@ -46,16 +47,16 @@ void parh5M_inc_dset_write_ntiles(parh5D_dataset_t dataset)
 	__sync_fetch_and_add(&parallax_metrics.dset_write_ntiles, 1);
 }
 
-void parh5M_inc_read_misaligned_access(parh5D_dataset_t dataset)
+void parh5M_inc_cache_hits(parh5D_dataset_t dataset)
 {
 	(void)dataset;
-	__sync_fetch_and_add(&parallax_metrics.dset_read_misalinged_accesses, 1);
+	__sync_fetch_and_add(&parallax_metrics.dset_cache_hits, 1);
 }
 
-void parh5M_inc_write_misaligned_access(parh5D_dataset_t dataset)
+void parh5M_inc_cache_miss(parh5D_dataset_t dataset)
 {
 	(void)dataset;
-	__sync_fetch_and_add(&parallax_metrics.dset_write_misalinged_accesses, 1);
+	__sync_fetch_and_add(&parallax_metrics.dset_cache_misses, 1);
 }
 
 void parh5M_inc_dset_metadata_bytes_read(parh5D_dataset_t dataset, uint64_t num_bytes)
@@ -86,6 +87,12 @@ void parh5M_inc_group_bytes_written(parh5G_group_t group, uint64_t num_bytes)
 	__sync_fetch_and_add(&parallax_metrics.group_write_ops, 1);
 }
 
+void parh5M_inc_dset_partially_written_tile(parh5D_dataset_t dataset)
+{
+	(void)dataset;
+	__sync_fetch_and_add(&parallax_metrics.dset_partially_written_tiles, 1);
+}
+
 const char *parh5M_dump_report(void)
 {
 	char *report = calloc(1UL, 8192);
@@ -93,13 +100,16 @@ const char *parh5M_dump_report(void)
 	size_t remaining = 8192;
 	idx += snprintf(&report[idx], remaining, "Dataset bytes read: %lu\n", parallax_metrics.dset_bytes_read);
 	idx += snprintf(&report[idx], remaining, "Dataset tiles read: %lu\n", parallax_metrics.dset_read_ntiles);
-	idx += snprintf(&report[idx], remaining, "Dataset tiles read misaligned accesses: %lu\n",
-			parallax_metrics.dset_read_misalinged_accesses);
+	idx += snprintf(&report[idx], remaining, "Dataset cache hits: %lu\n", parallax_metrics.dset_cache_hits);
+	idx += snprintf(&report[idx], remaining, "Dataset cache misses: %lu\n", parallax_metrics.dset_cache_misses);
+	idx += snprintf(&report[idx], remaining, "Dataset cache hit ratio: %lf\n",
+			(double)parallax_metrics.dset_cache_hits / parallax_metrics.dset_cache_hits +
+				parallax_metrics.dset_cache_misses);
 	//
+	idx += snprintf(&report[idx], remaining, "Dataset partially written tiles: %lu\n",
+			parallax_metrics.dset_partially_written_tiles);
 	idx += snprintf(&report[idx], remaining, "Dataset bytes written: %lu\n", parallax_metrics.dset_bytes_written);
 	idx += snprintf(&report[idx], remaining, "Dataset tiles written: %lu\n", parallax_metrics.dset_write_ntiles);
-	idx += snprintf(&report[idx], remaining, "Dataset tiles write misaligned accesses: %lu\n",
-			parallax_metrics.dset_write_misalinged_accesses);
 	//
 	idx += snprintf(&report[idx], remaining, "Group bytes read: %lu\n", parallax_metrics.group_bytes_read);
 	idx += snprintf(&report[idx], remaining, "Group read ops: %lu\n", parallax_metrics.group_read_ops);

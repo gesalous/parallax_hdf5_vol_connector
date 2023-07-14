@@ -25,4 +25,7 @@ parh5D_dataset_t parh5D_open_dataset(parh5I_inode_t inode, parh5F_file_t file);
 const char *parh5D_get_dataset_name(parh5D_dataset_t dataset);
 parh5I_inode_t parh5D_get_inode(parh5D_dataset_t dataset);
 parh5F_file_t parh5D_get_file(parh5D_dataset_t dataset);
+
+uint32_t parh5D_get_tile_size_in_elems(parh5D_dataset_t dataset);
+uint32_t parh5D_get_elems_size_in_bytes(parh5D_dataset_t dataset);
 #endif
