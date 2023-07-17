@@ -243,13 +243,15 @@ static void parh5D_set_tile_size(parh5D_dataset_t dataset)
 	if (layout == H5D_CONTIGUOUS)
 		dataset->tile_size_in_elems = PARH5D_CONTIGUOUS_TILE_SIZE;
 
-	if (class_id != H5T_FLOAT && class_id != H5T_INTEGER)
+	if (class_id != H5T_FLOAT && class_id != H5T_INTEGER && class_id != H5T_NATIVE_DOUBLE)
 		dataset->tile_size_in_elems = 1;
 
 	hsize_t dims[PARH5D_MAX_DIMENSIONS] = { 0 };
 	H5Sget_simple_extent_dims(dataset->space_id, dims, NULL);
 	if (dataset->tile_size_in_elems > dims[0])
 		dataset->tile_size_in_elems = dims[0];
+
+	fprintf(stderr, "Set tile size in elements %u\n", dataset->tile_size_in_elems);
 }
 
 void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t type_id,
@@ -356,7 +358,7 @@ static void parh5D_get_first_array_element(int ndims, hsize_t coordinates[], hsi
 	for (int dim = 0; dim < ndims; dim++) {
 		coordinates[dim] = start[dim];
 		// if (ndims > 2)
-		// 	fprintf(stderr, "Fresh start[%d]=%ld\n", dim, start[dim]);
+		fprintf(stderr, "Fresh start[%d]=%ld\n", dim, start[dim]);
 	}
 	// if (ndims > 2)
 	// 	fprintf(stderr, "*--*\n");
@@ -394,11 +396,11 @@ static void parh5D_get_next_array_element(int ndims, hsize_t coordinates[], hsiz
 	// 	fprintf(stderr, "**\n");
 	// 	fprintf(stderr, "After\n");
 	// }
-	// for (int id = ndims - 1; id >= 0 && ndims > 2; id--) {
-	// fprintf(stderr, "start[%d] = %ld\n", id, start[id]);
-	// fprintf(stderr, "end[%d] = %ld\n", id, end[id]);
-	// fprintf(stderr, "coord[%d] = %ld\n", id, coordinates[id]);
-	// }
+	for (int id = ndims - 1; id >= 0 && ndims > 2; id--) {
+		fprintf(stderr, "start[%d] = %ld\n", id, start[id]);
+		fprintf(stderr, "end[%d] = %ld\n", id, end[id]);
+		fprintf(stderr, "coord[%d] = %ld\n", id, coordinates[id]);
+	}
 }
 
 /**
@@ -521,7 +523,7 @@ herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_sp
 	parh5D_get_first_array_element(file_ndims, file_coords, file_start_coords);
 
 #ifdef METRICS_ENABLE
-	parh5M_inc_dset_bytes_written(dataset, mem_buf_size);
+	parh5M_inc_dset_bytes_read(dataset, mem_buf_size);
 #endif
 
 	parh5T_tile_cache_t tile_cache = parh5T_init_tile_cache(dataset, PARH5D_READ_TILE_CACHE);

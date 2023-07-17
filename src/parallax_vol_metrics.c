@@ -1,4 +1,5 @@
 #include "parallax_vol_metrics.h"
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -103,8 +104,8 @@ const char *parh5M_dump_report(void)
 	idx += snprintf(&report[idx], remaining, "Dataset cache hits: %lu\n", parallax_metrics.dset_cache_hits);
 	idx += snprintf(&report[idx], remaining, "Dataset cache misses: %lu\n", parallax_metrics.dset_cache_misses);
 	idx += snprintf(&report[idx], remaining, "Dataset cache hit ratio: %lf\n",
-			(double)parallax_metrics.dset_cache_hits / parallax_metrics.dset_cache_hits +
-				parallax_metrics.dset_cache_misses);
+			(double)parallax_metrics.dset_cache_hits /
+				(parallax_metrics.dset_cache_hits + parallax_metrics.dset_cache_misses));
 	//
 	idx += snprintf(&report[idx], remaining, "Dataset partially written tiles: %lu\n",
 			parallax_metrics.dset_partially_written_tiles);
