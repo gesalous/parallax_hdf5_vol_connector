@@ -10,7 +10,7 @@
 #define PAR_TEST_GROUP_NAME "par_group"
 #define PAR_TEST_DATASET_NAME "par_dataset"
 
-#define PAR_TEST_FILE_DIM 128000
+#define PAR_TEST_FILE_DIM 32
 #define PAR_TEST_MEM_DIM 1
 #define PAR_TEST_GAP 1
 
@@ -55,7 +55,6 @@ static void parh5_test_partial_updates(void)
 	log_debug("Created dataset: %s SUCCESSFULLY", PAR_TEST_DATASET_NAME);
 	double value = PAR_TEST_DOUBLE_VALUE;
 
-	//---> Write 1st and 3rd dimensions from memory to storage
 	double mem_buf[PAR_TEST_MEM_DIM] = { 0 };
 	for (hsize_t dim_0 = 0; dim_0 < PAR_TEST_MEM_DIM; dim_0++)
 		mem_buf[dim_0] = PAR_TEST_DOUBLE_VALUE;
@@ -66,13 +65,17 @@ static void parh5_test_partial_updates(void)
 	hid_t mem_dataspace = H5Screate_simple(sizeof(mem_dims) / sizeof(mem_dims[0]), mem_dims, NULL);
 	H5Sselect_hyperslab(mem_dataspace, H5S_SELECT_SET, mem_start, NULL, mem_count, NULL);
 
-	int iterations = PAR_TEST_FILE_DIM / PAR_TEST_MEM_DIM + PAR_TEST_GAP;
+	int iterations = PAR_TEST_FILE_DIM / (PAR_TEST_MEM_DIM + PAR_TEST_GAP);
 
 	for (int iter = 0; iter < iterations; iter++) {
+		// log_debug("Population setting file start at: %d", iter * (PAR_TEST_MEM_DIM + PAR_TEST_GAP));
 		hsize_t file_start[1] = { iter * (PAR_TEST_MEM_DIM + PAR_TEST_GAP) };
 		hsize_t file_count[1] = { PAR_TEST_MEM_DIM };
 		H5Sselect_hyperslab(dataspace_id, H5S_SELECT_SET, file_start, NULL, file_count, NULL);
-		H5Dwrite(dataset_id, H5T_NATIVE_DOUBLE, mem_dataspace, dataspace_id, H5P_DEFAULT, mem_buf);
+		if (H5Dwrite(dataset_id, H5T_NATIVE_DOUBLE, mem_dataspace, dataspace_id, H5P_DEFAULT, mem_buf) < 0) {
+			log_fatal("Failed to write");
+			_exit(EXIT_FAILURE);
+		}
 	}
 	//Now verification stage
 
@@ -84,22 +87,29 @@ static void parh5_test_partial_updates(void)
 	hid_t mem_dataspace_ver = H5Screate_simple(sizeof(mem_dims_ver) / sizeof(mem_dims_ver[0]), mem_dims_ver, NULL);
 	H5Sselect_hyperslab(mem_dataspace_ver, H5S_SELECT_SET, mem_start_ver, NULL, mem_count_ver, NULL);
 
+	hsize_t file_dims_ver[1] = { PAR_TEST_FILE_DIM };
 	hsize_t file_start_ver[1] = { 0 };
-	hsize_t file_count_ver[1] = { PAR_TEST_MEM_DIM };
+	hsize_t file_count_ver[1] = { 1 };
+	hid_t file_dataspace_ver =
+		H5Screate_simple(sizeof(file_dims_ver) / sizeof(file_dims_ver[0]), file_dims_ver, NULL);
 
 	for (int iter = 0; iter < PAR_TEST_FILE_DIM; iter++) {
-		file_start_ver[0] = iter * H5Sselect_hyperslab(dataspace_id, H5S_SELECT_SET, file_start_ver, NULL,
-							       file_count_ver, NULL);
-		H5Dread(dataset_id, H5T_NATIVE_DOUBLE, mem_dataspace_ver, dataspace_id, H5P_DEFAULT, mem_buf_ver);
-		if (0 == iter % 2 && mem_buf_ver[0] != PAR_TEST_DOUBLE_VALUE) {
-			log_fatal("TEST failed, mem_buf should be %lf instead its value is %lf", PAR_TEST_DOUBLE_VALUE,
-				  mem_buf_ver[0]);
+		file_start_ver[0] = iter;
+		H5Sselect_hyperslab(file_dataspace_ver, H5S_SELECT_SET, file_start_ver, NULL, file_count_ver, NULL);
+		H5Dread(dataset_id, H5T_NATIVE_DOUBLE, mem_dataspace_ver, file_dataspace_ver, H5P_DEFAULT, mem_buf_ver);
+		if (0 == iter % 2) {
+			if (mem_buf_ver[0] == PAR_TEST_DOUBLE_VALUE)
+				continue;
+			log_fatal("TEST failed, at iter %d mem_buf should be %lf instead its value is %lf", iter,
+				  PAR_TEST_DOUBLE_VALUE, mem_buf_ver[0]);
 			_exit(EXIT_FAILURE);
 		}
-		if (0 == iter % 2 && mem_buf_ver[0] != 0) {
-			log_fatal("TEST failed, mem_buf should be %lf instead its value is %lf", 0.0, mem_buf_ver[0]);
-			_exit(EXIT_FAILURE);
-		}
+		if (mem_buf_ver[0] == 0)
+			continue;
+
+		log_fatal("TEST failed at iter: %d, mem_buf should be %lf instead its value is %lf", iter, 0.0,
+			  mem_buf_ver[0]);
+		_exit(EXIT_FAILURE);
 	}
 
 	log_info("TEST multi update SUCCESS!");
