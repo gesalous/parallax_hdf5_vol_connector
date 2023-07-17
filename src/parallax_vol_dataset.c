@@ -23,7 +23,7 @@
 #endif
 
 #define PARH5D_MAX_DIMENSIONS 5
-#define PARH5D_CONTIGUOUS_TILE_SIZE 1024
+#define PARH5D_CONTIGUOUS_TILE_SIZE 512
 #define PARH5D_CHUNKED_TILE_SIZE 64
 
 #define PARH5D_PAR_CHECK_ERROR(X)                                 \
