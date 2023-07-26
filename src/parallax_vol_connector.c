@@ -50,7 +50,7 @@ herr_t parh5_property_list_iterator(hid_t prop_id, const char *name, void *iter_
 	size_t prop_size = 0;
 	H5Pget_size(prop_id, name, &prop_size);
 
-	log_debug("Property Name: %s value size %zu", name, prop_size);
+	fprintf(stderr, "Property Name: %s value size %zu\n", name, prop_size);
 
 	return 0; // Continue iterating
 }

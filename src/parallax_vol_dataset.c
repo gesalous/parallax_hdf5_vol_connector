@@ -23,7 +23,7 @@
 #endif
 
 #define PARH5D_MAX_DIMENSIONS 5
-#define PARH5D_CONTIGUOUS_TILE_SIZE 512
+#define PARH5D_CONTIGUOUS_TILE_SIZE 1024
 #define PARH5D_CHUNKED_TILE_SIZE 64
 
 #define PARH5D_PAR_CHECK_ERROR(X)                                 \
@@ -40,6 +40,11 @@ struct parh5D_dataset {
 	hid_t type_id; /*info about its schema*/
 	hid_t dcpl_id; /*dataset creation property list*/
 	uint32_t tile_size_in_elems;
+	/**
+	 * Parallax handles datasets that applications request to store them
+	 * contiguous in the following manner
+	 * */
+	uint8_t dimension_vector;
 };
 
 /**
@@ -52,7 +57,8 @@ static struct parh5T_tile parh5D_map_id2tile(parh5D_dataset_t dataset, hsize_t s
 {
 	struct parh5T_tile tile_uuid = {
 		.uuid.dset_id = parh5I_get_inode_num(dataset->inode),
-		.uuid.tile_id = storage_elem_id - storage_elem_id % dataset->tile_size_in_elems,
+		// .uuid.tile_id = storage_elem_id - (storage_elem_id % dataset->tile_size_in_elems),
+		.uuid.tile_id = storage_elem_id / dataset->tile_size_in_elems,
 		.offt_in_tile = (storage_elem_id % dataset->tile_size_in_elems) * H5Tget_size(dataset->type_id)
 	};
 	return tile_uuid;
@@ -112,12 +118,12 @@ static inline hsize_t parh5D_get_id_from_coords(hsize_t coords[], hsize_t shape[
 	int index = 0;
 	int stride = 1;
 
-	for (int i = 0; i < ndims; i++) {
+	for (int i = ndims - 1; i >= 0; i--) {
 		index += coords[i] * stride;
 		stride *= shape[i];
 	}
 
-	// for (int i = ndims - 1; i >= 0; i--)
+	// for (int i = 0; i < ndims; i++)
 	// 	fprintf(stderr, "storage_coord[%d] = %ld ", i, coords[i]);
 	// fprintf(stderr, "\n");
 	// fprintf(stderr, "Element id (in 1D) = %d\n", index);
@@ -237,7 +243,9 @@ static parh5D_dataset_t parh5D_read_dataset(parh5G_group_t group, uint64_t inode
 static void parh5D_set_tile_size(parh5D_dataset_t dataset)
 {
 	H5D_layout_t layout = H5Pget_layout(dataset->dcpl_id);
+
 	H5T_class_t class_id = H5Tget_class(dataset->type_id);
+	log_debug("Layout is %d", layout);
 
 	dataset->tile_size_in_elems = PARH5D_CHUNKED_TILE_SIZE;
 	if (layout == H5D_CONTIGUOUS)
@@ -247,11 +255,21 @@ static void parh5D_set_tile_size(parh5D_dataset_t dataset)
 		dataset->tile_size_in_elems = 1;
 
 	hsize_t dims[PARH5D_MAX_DIMENSIONS] = { 0 };
-	H5Sget_simple_extent_dims(dataset->space_id, dims, NULL);
-	if (dataset->tile_size_in_elems > dims[0])
-		dataset->tile_size_in_elems = dims[0];
+	int ndims = H5Sget_simple_extent_dims(dataset->space_id, dims, NULL);
+	if (ndims < 0) {
+		log_fatal("Failed to get dimensions for dataset");
+		_exit(EXIT_FAILURE);
+	}
+
+	// if (dataset->tile_size_in_elems > dims[0])
+	// 	dataset->tile_size_in_elems = dims[0];
+	// Iterate through the properties and print their names and values
+	H5Piterate(dataset->dcpl_id, NULL, parh5_property_list_iterator, NULL);
 
 	fprintf(stderr, "Set tile size in elements %u\n", dataset->tile_size_in_elems);
+	for (int i = ndims - 1; i >= 0; i--)
+		fprintf(stderr, "Dim[%d] = %ld\n", i, dims[i]);
+	// _exit(EXIT_FAILURE);
 }
 
 void *parh5D_create(void *obj, const H5VL_loc_params_t *loc_params, const char *name, hid_t lcpl_id, hid_t type_id,
@@ -358,7 +376,7 @@ static void parh5D_get_first_array_element(int ndims, hsize_t coordinates[], hsi
 	for (int dim = 0; dim < ndims; dim++) {
 		coordinates[dim] = start[dim];
 		// if (ndims > 2)
-		fprintf(stderr, "Fresh start[%d]=%ld\n", dim, start[dim]);
+		// fprintf(stderr, "Fresh start[%d]=%ld\n", dim, start[dim]);
 	}
 	// if (ndims > 2)
 	// 	fprintf(stderr, "*--*\n");
@@ -373,34 +391,20 @@ static void parh5D_get_first_array_element(int ndims, hsize_t coordinates[], hsi
  */
 static void parh5D_get_next_array_element(int ndims, hsize_t coordinates[], hsize_t start[], hsize_t end[])
 {
-	// if (ndims > 2) {
-	// 	fprintf(stderr, "**\n");
-	// 	fprintf(stderr, "Before\n");
-	// }
-	// for (int id = ndims - 1; id >= 0 && ndims > 2; id--) {
-	// fprintf(stderr, "start[%d] = %ld\n", id, start[id]);
-	// fprintf(stderr, "end[%d] = %ld\n", id, end[id]);
-	// fprintf(stderr, "coord[%d] = %ld\n", id, coordinates[id]);
-	// }
-
-	int i = 0;
-	while (i < ndims) {
-		if (coordinates[i] < end[i]) {
-			coordinates[i]++;
+	int i = ndims - 1;
+	while (i >= 0) {
+		if (coordinates[i] <= end[i]) {
+			coordinates[i--]++;
 			break;
 		}
 		coordinates[i] = start[i];
-		i++;
+		i--;
 	}
-	// if (ndims > 2) {
-	// 	fprintf(stderr, "**\n");
-	// 	fprintf(stderr, "After\n");
+	// for (int id = 0; id < ndims && ndims > 2; id++) {
+	// fprintf(stderr, "start[%d] = %ld\n", id, start[id]);
+	// fprintf(stderr, "end[%d] = %ld\n", id, end[id]);
+	// 	fprintf(stderr, "coord[%d] = %ld\n", id, coordinates[id]);
 	// }
-	for (int id = ndims - 1; id >= 0 && ndims > 2; id--) {
-		fprintf(stderr, "start[%d] = %ld\n", id, start[id]);
-		fprintf(stderr, "end[%d] = %ld\n", id, end[id]);
-		fprintf(stderr, "coord[%d] = %ld\n", id, coordinates[id]);
-	}
 }
 
 /**
@@ -529,17 +533,24 @@ herr_t parh5D_read(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_sp
 	parh5T_tile_cache_t tile_cache = parh5T_init_tile_cache(dataset, PARH5D_READ_TILE_CACHE);
 	const char *mem_buf = buf[0];
 
+	// fprintf(stderr, " <Read access>\n");
 	for (hssize_t elem_num = 0; elem_num < num_elem_mem; elem_num++) {
 		char *elem_addr =
 			parh5D_calc_elem_addr(mem_buf, mem_ndims, mem_shape, mem_coords, H5Tget_size(dataset->type_id));
 
 		hsize_t file_elem_id = parh5D_get_id_from_coords(file_coords, file_shape, file_ndims);
+
+		// for (int i = file_ndims - 1; i >= 0; i--)
+		// 	fprintf(stderr, "Read access: file_coord[%d] = %ld ", i, file_coords[i]);
+		// fprintf(stderr, "\n");
+
 		struct parh5T_tile file_tile = parh5D_map_id2tile(dataset, file_elem_id);
 		parh5T_read_from_tile_cache(tile_cache, file_tile, elem_addr, H5Tget_size(dataset->type_id));
 
 		parh5D_get_next_array_element(mem_ndims, mem_coords, mem_start_coords, mem_end_coords);
 		parh5D_get_next_array_element(file_ndims, file_coords, file_start_coords, file_end_coords);
 	}
+	// fprintf(stderr, " </Read access>\n");
 	parh5T_destroy_tile_cache(tile_cache);
 
 	return PARH5_SUCCESS;
@@ -582,40 +593,6 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 
 	hid_t real_file_space_id = file_space_id[0] == H5S_ALL ? dataset->space_id : file_space_id[0];
 	hid_t real_mem_space_id = mem_space_id[0] == H5S_ALL ? dataset->space_id : mem_space_id[0];
-
-	// if (H5Sget_simple_extent_ndims(real_file_space_id) != H5Sget_simple_extent_ndims(real_mem_space_id)) {
-	// 	log_debug("Dimensions between memory and file differ");
-	// 	int mem_ndims = H5Sget_simple_extent_ndims(real_mem_space_id);
-	// 	log_debug("Memory dimensions: %d", mem_ndims);
-	// 	log_debug("Mem n points: %ld", H5Sget_select_npoints(real_mem_space_id));
-	// 	log_debug("Memory shape:");
-	// 	hsize_t memory_shape[PARH5D_MAX_DIMENSIONS] = { 0 };
-	// 	H5Sget_simple_extent_dims(real_mem_space_id, memory_shape, NULL);
-	// 	for (int i = 0; i < mem_ndims; i++)
-	// 		fprintf(stderr, "memory[%d] = %ld\n", i, memory_shape[i]);
-	// 	//
-	// 	int file_ndims = H5Sget_simple_extent_ndims(real_file_space_id);
-	// 	log_debug("File dimensions: %d", file_ndims);
-	// 	log_debug("File n points: %ld", H5Sget_select_npoints(real_file_space_id));
-	// 	log_debug("File shape:");
-	// 	hsize_t file_shape[PARH5D_MAX_DIMENSIONS] = { 0 };
-	// 	H5Sget_simple_extent_dims(real_file_space_id, file_shape, NULL);
-	// 	for (int i = 0; i < file_ndims; i++)
-	// 		fprintf(stderr, "file[%d] = %ld\n", i, file_shape[i]);
-
-	// 	hsize_t start_coords[PARH5D_MAX_DIMENSIONS];
-	// 	hsize_t end_coords[PARH5D_MAX_DIMENSIONS];
-	// 	if (H5Sget_select_bounds(real_file_space_id, start_coords, end_coords) < 0) {
-	// 		log_fatal("Failed to get start, end bounds");
-	// 		_exit(EXIT_FAILURE);
-	// 	}
-	// 	for (int i = 0; i < file_ndims; i++) {
-	// 		fprintf(stdout, "start_coord[%d] = %ld\n", i, start_coords[i]);
-	// 		fprintf(stdout, "end_coord[%d] = %ld\n", i, end_coords[i]);
-	// 	}
-
-	// 	_exit(EXIT_FAILURE);
-	// }
 
 	hssize_t num_elem_mem = -1;
 	if ((num_elem_mem = H5Sget_select_npoints(real_mem_space_id)) < 0) {
@@ -684,13 +661,19 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 	const char *mem_buf = buf[0];
 	parh5T_tile_cache_t tile_cache = parh5T_init_tile_cache(dataset, PARH5D_WRITE_TILE_CACHE);
 
+	// fprintf(stderr, "[%s:%s:%d]---------> memory size = %lu\n", __FILE__, __func__, __LINE__,
+	// 	num_elem_mem * H5Tget_size(dataset->type_id));
+	// fprintf(stderr, "<Write access>\n");
 	for (hssize_t elem_num = 0; elem_num < num_elem_mem; elem_num++) {
 		// for (int i = mem_ndims - 1; i >= 0; i--)
 		// 	fprintf(stderr, "mem_coord[%d] = %ld ", i, mem_coords[i]);
 		// fprintf(stderr, "\n");
 		// for (int i = file_ndims - 1; i >= 0; i--)
-		// 	fprintf(stderr, "file_coord[%d] = %ld ", i, file_coords[i]);
+		// 	fprintf(stderr, " file_coord[%d] = %ld ", i, file_coords[i]);
 		// fprintf(stderr, "\n");
+		// for (int i = mem_ndims - 1; i >= 0; i--)
+		// 	fprintf(stderr, " mem_coord[%d] = %ld ", i, mem_coords[i]);
+		// fprintf(stderr, "num_elem_mem = %ld\n", num_elem_mem);
 
 		char *elem_addr =
 			parh5D_calc_elem_addr(mem_buf, mem_ndims, mem_shape, mem_coords, H5Tget_size(dataset->type_id));
@@ -702,6 +685,7 @@ herr_t parh5D_write(size_t count, void *dset[], hid_t mem_type_id[], hid_t mem_s
 		parh5D_get_next_array_element(mem_ndims, mem_coords, mem_start_coords, mem_end_coords);
 		parh5D_get_next_array_element(file_ndims, file_coords, file_start_coords, file_end_coords);
 	}
+	// fprintf(stderr, "</Write access>\n");
 	parh5T_tile_cache_evict(tile_cache);
 	parh5T_destroy_tile_cache(tile_cache);
 
