@@ -1,8 +1,8 @@
 #include "../src/parallax_vol_connector.h"
-#include "H5Ppublic.h"
 #include <H5public.h>
 #include <hdf5.h>
 #include <log.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
 #define PAR_TEST_FILE_NAME_SINGLE "par_test-single.h5"
@@ -120,6 +120,10 @@ static void parh5_test_partial_updates(void)
 	H5Fclose(file_id);
 }
 
+#include <H5Ipublic.h>
+typedef struct H5S_t H5S_t;
+herr_t H5S_select_construct_projection(H5S_t *base_space, H5S_t **new_space_ptr, unsigned new_space_rank,
+				       hsize_t element_size, ptrdiff_t *buf_adj);
 int main(void)
 {
 	parh5_test_partial_updates();
