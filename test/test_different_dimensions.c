@@ -1,13 +1,12 @@
 #include "hdf5.h"
-#include <bits/getopt_core.h>
 #include <getopt.h>
 #include <log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #define N_ITERATIONS FILE_DIM1
-#define MEM_ROWS_NUM 10
-#define MEM_COLS_NUM 10
+#define MEM_ROWS_NUM 200
+#define MEM_COLS_NUM 200
 #define FILE_DIM0 200
 #define FILE_DIM1 200
 #define FILE_DIM2 200
@@ -44,6 +43,11 @@ exit:
 		_exit(EXIT_FAILURE);
 	}
 
+	// Create a new file access property list
+	hid_t fapl_id = H5Pcreate(H5P_FILE_ACCESS);
+
+	// Enable direct I/O driver in the file access property list
+
 	// Create a new HDF5 file
 	hid_t file_id = H5Fcreate("example.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
@@ -54,7 +58,12 @@ exit:
 	// Create a 2D memory dataspace
 	hsize_t mem_dims[2] = { MEM_ROWS_NUM, MEM_COLS_NUM };
 	hid_t memspace_id = H5Screate_simple(2, mem_dims, NULL);
-	int data[MEM_ROWS_NUM][MEM_COLS_NUM];
+	// Allocate memory for an array of pointers (rows)
+	double **data = (double **)calloc(MEM_ROWS_NUM, sizeof(double *));
+
+	// Allocate memory for each row and initialize columns
+	for (int i = 0; i < MEM_ROWS_NUM; i++)
+		data[i] = (double *)calloc(MEM_COLS_NUM, sizeof(double));
 
 	// Fill the 2D memory space with the value 5
 	for (int i = 0; i < MEM_ROWS_NUM; i++) {
@@ -150,6 +159,9 @@ exit:
 	H5Dclose(dataset_id);
 	H5Sclose(dataspace_id);
 	H5Fclose(file_id);
+	for (int i = 0; i < MEM_COLS_NUM; i++)
+		free(data[i]);
+	free(data);
 
 	return 0;
 }
