@@ -26,6 +26,9 @@ add_executable(test_different_dimensions test_different_dimensions.c)
 target_include_directories(test_different_dimensions
                            PRIVATE "${project_source_dir}/src")
 target_link_libraries(test_different_dimensions log ${HDF5_C_LIBRARIES})
+target_compile_options(test_different_dimensions PRIVATE -g)
+target_compile_options(test_different_dimensions PRIVATE -O1)
+target_link_options(test_different_dimensions PRIVATE -rdynamic)
 
 # Add the test
 add_test(vol_plugin vol_plugin)
@@ -60,3 +63,23 @@ add_test(test_different_dimensions test_different_dimensions)
 set_tests_properties(
   test_different_dimensions
   PROPERTIES ENVIRONMENT "HDF5_PLUGIN_PATH=${PROJECT_BINARY_DIR}/src")
+
+# Add custom library and include paths to CMAKE_PREFIX_PATH or use -D options
+list(APPEND CMAKE_PREFIX_PATH "${custom_library_path}" "${custom_include_path}")
+
+# Find the library
+find_library(LIBRARY_NAME tiledb)
+
+# Check if the library was found
+if(NOT LIBRARY_NAME)
+  message(
+    WARNING "tiledb library not found. Cannot build tiledb test ok no worries.")
+else()
+  add_executable(test_tiledb test_tiledb.c)
+  # Split the custom_include_path string into a list
+  string(REPLACE ";" ";" custom_include_path_list "${custom_include_path}")
+
+  target_include_directories(test_tiledb PRIVATE "${project_source_dir}/src"
+                                                 "${custom_include_path_list}")
+  target_link_libraries(test_tiledb log ${LIBRARY_NAME})
+endif()
