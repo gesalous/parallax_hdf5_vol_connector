@@ -27,8 +27,15 @@ target_include_directories(test_different_dimensions
                            PRIVATE "${project_source_dir}/src")
 target_link_libraries(test_different_dimensions log ${HDF5_C_LIBRARIES})
 target_compile_options(test_different_dimensions PRIVATE -g)
-target_compile_options(test_different_dimensions PRIVATE -O1)
+# target_compile_options(test_different_dimensions PRIVATE -O1)
 target_link_options(test_different_dimensions PRIVATE -rdynamic)
+
+add_executable(test_random_updates test_random_updates.c)
+target_include_directories(test_random_updates
+                           PRIVATE "${project_source_dir}/src")
+target_link_libraries(test_random_updates log ${HDF5_C_LIBRARIES})
+target_compile_options(test_random_updates PRIVATE -g)
+target_link_options(test_random_updates PRIVATE -rdynamic)
 
 # Add the test
 add_test(vol_plugin vol_plugin)
@@ -63,6 +70,12 @@ add_test(test_different_dimensions test_different_dimensions)
 set_tests_properties(
   test_different_dimensions
   PROPERTIES ENVIRONMENT "HDF5_PLUGIN_PATH=${PROJECT_BINARY_DIR}/src")
+
+# Add the test
+add_test(test_random_updates test_random_updates)
+set_tests_properties(
+  test_random_updates PROPERTIES ENVIRONMENT
+                                 "HDF5_PLUGIN_PATH=${PROJECT_BINARY_DIR}/src")
 
 # Add custom library and include paths to CMAKE_PREFIX_PATH or use -D options
 list(APPEND CMAKE_PREFIX_PATH "${custom_library_path}" "${custom_include_path}")

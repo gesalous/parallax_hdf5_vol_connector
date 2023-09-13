@@ -1,44 +1,14 @@
-/**
- * @file   quickstart_sparse.c
- *
- * @section LICENSE
- *
- * The MIT License
- *
- * @copyright Copyright (c) 2018-2022 TileDB, Inc.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- *
- * @section DESCRIPTION
- *
- * When run, this program will create a simple 2D sparse array, write some data
- * to it, and read a slice of the data back.
- */
 #include "tiledb/api/c_api/api_external_common.h"
 #include "tiledb/api/c_api/error/error_api_external.h"
 #include <log.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <tiledb/tiledb.h>
 #include <unistd.h>
-#define TILEDB_SPARSE_ROWS 256
-#define TILEDB_SPARSE_COLUMNS 256
+#define TILEDB_SPARSE_ROWS 64
+#define TILEDB_SPARSE_COLUMNS 64
+#define TILEDB_UPDATE_PERCENTAGE 10
 #define SUBCOLS 16
 #define PRINT_ERROR(X)                                \
 	do {                                          \
@@ -183,69 +153,142 @@ static void tiledb_write_array(void)
 	tiledb_ctx_free(&ctx);
 }
 
-static void tiledb_read_array(void)
+// static void tiledb_read_array(void)
+// {
+// 	// Create TileDB context
+// 	tiledb_ctx_t *ctx;
+// 	tiledb_ctx_alloc(NULL, &ctx);
+
+// 	// Open array for reading
+// 	tiledb_array_t *array;
+// 	tiledb_array_alloc(ctx, array_name, &array);
+// 	tiledb_array_open(ctx, array, TILEDB_READ);
+
+// 	// Slice only rows 1, 2 and cols 2, 3, 4
+// 	tiledb_subarray_t *subarray;
+// 	tiledb_subarray_alloc(ctx, array, &subarray);
+// 	// int subarray_v[] = { 1, 2, 2, 4 };
+// 	int subarray_v[] = { 1, 50, 1, 25 };
+// 	tiledb_subarray_set_subarray(ctx, subarray, subarray_v);
+
+// 	// Set maximum buffer sizes
+// 	uint64_t coords_size = 16;
+// 	uint64_t data_size = 16;
+
+// 	// Prepare the vector that will hold the result
+// 	int *coords_rows = (int *)malloc(coords_size);
+// 	int *coords_cols = (int *)malloc(coords_size);
+// 	int *data = (int *)malloc(data_size);
+
+// 	// Create query
+// 	tiledb_query_t *query;
+// 	tiledb_query_alloc(ctx, array, TILEDB_READ, &query);
+// 	tiledb_query_set_subarray_t(ctx, query, subarray);
+// 	tiledb_query_set_layout(ctx, query, TILEDB_ROW_MAJOR);
+// 	tiledb_query_set_data_buffer(ctx, query, "a", data, &data_size);
+// 	tiledb_query_set_data_buffer(ctx, query, "rows", coords_rows, &coords_size);
+// 	tiledb_query_set_data_buffer(ctx, query, "cols", coords_cols, &coords_size);
+
+// 	// Submit query
+// 	tiledb_query_submit(ctx, query);
+
+// 	// Close array
+// 	tiledb_array_close(ctx, array);
+
+// 	// Print out the results.
+// 	int result_num = (int)(data_size / sizeof(int));
+// 	for (int r = 0; r < result_num; r++) {
+// 		int i = coords_rows[r];
+// 		int j = coords_cols[r];
+// 		int a = data[r];
+// 		fprintf(stderr, "[%s:%s:%d] Cell (%d, %d) has data %d\n", __FILE__, __func__, __LINE__, i, j, a);
+// 	}
+
+// 	// Clean up
+// 	free((void *)coords_rows);
+// 	free((void *)coords_cols);
+// 	free((void *)data);
+// 	tiledb_subarray_free(&subarray);
+// 	tiledb_array_free(&array);
+// 	tiledb_query_free(&query);
+// 	tiledb_ctx_free(&ctx);
+// }
+
+// Function to randomly update an element
+static void tiledb_random_update()
 {
+	// Seed random number generator
+	srand(-1);
+
+	// Open the array for writing
 	// Create TileDB context
 	tiledb_ctx_t *ctx;
 	tiledb_ctx_alloc(NULL, &ctx);
-
-	// Open array for reading
 	tiledb_array_t *array;
 	tiledb_array_alloc(ctx, array_name, &array);
-	tiledb_array_open(ctx, array, TILEDB_READ);
+	if (TILEDB_OK != tiledb_array_open(ctx, array, TILEDB_WRITE))
+		PRINT_ERROR(ctx)
 
-	// Slice only rows 1, 2 and cols 2, 3, 4
-	tiledb_subarray_t *subarray;
-	tiledb_subarray_alloc(ctx, array, &subarray);
-	// int subarray_v[] = { 1, 2, 2, 4 };
-	int subarray_v[] = { 1, 50, 1, 25 };
-	tiledb_subarray_set_subarray(ctx, subarray, subarray_v);
+	uint64_t num_updates = (TILEDB_SPARSE_ROWS * TILEDB_SPARSE_COLUMNS * TILEDB_UPDATE_PERCENTAGE) / 100;
+	// Set the coordinates
 
-	// Set maximum buffer sizes
-	uint64_t coords_size = 16;
-	uint64_t data_size = 16;
+	log_info("Updating array total updates are: %lu", num_updates);
+	for (uint64_t i = 0; i < num_updates; i++) {
+		// Randomly choose a row and column
+		int random_row = rand() % TILEDB_SPARSE_ROWS;
+		int random_col = rand() % TILEDB_SPARSE_COLUMNS;
+		int row_coords[] = { random_row };
+		int cols_coords[] = { random_col };
+		// Data to write (update)
+		int data_to_write[1] = { 1983 };
+		// Create the query
+		tiledb_query_t *query = NULL;
+		tiledb_query_alloc(ctx, array, TILEDB_WRITE, &query);
+		tiledb_query_set_layout(ctx, query, TILEDB_UNORDERED);
+		uint64_t data_size = sizeof(data_to_write);
+		uint64_t coord_size = sizeof(row_coords);
 
-	// Prepare the vector that will hold the result
-	int *coords_rows = (int *)malloc(coords_size);
-	int *coords_cols = (int *)malloc(coords_size);
-	int *data = (int *)malloc(data_size);
+		if (TILEDB_OK != tiledb_query_set_data_buffer(ctx, query, "a", data_to_write, &data_size))
+			PRINT_ERROR(ctx)
 
-	// Create query
-	tiledb_query_t *query;
-	tiledb_query_alloc(ctx, array, TILEDB_READ, &query);
-	tiledb_query_set_subarray_t(ctx, query, subarray);
-	tiledb_query_set_layout(ctx, query, TILEDB_ROW_MAJOR);
-	tiledb_query_set_data_buffer(ctx, query, "a", data, &data_size);
-	tiledb_query_set_data_buffer(ctx, query, "rows", coords_rows, &coords_size);
-	tiledb_query_set_data_buffer(ctx, query, "cols", coords_cols, &coords_size);
+		if (TILEDB_OK != tiledb_query_set_data_buffer(ctx, query, "rows", &row_coords[0], &coord_size))
+			PRINT_ERROR(ctx)
 
-	// Submit query
-	tiledb_query_submit(ctx, query);
+		if (TILEDB_OK != tiledb_query_set_data_buffer(ctx, query, "cols", &cols_coords[0], &coord_size))
+			PRINT_ERROR(ctx)
 
-	// Close array
-	tiledb_array_close(ctx, array);
-
-	// Print out the results.
-	int result_num = (int)(data_size / sizeof(int));
-	for (int r = 0; r < result_num; r++) {
-		int i = coords_rows[r];
-		int j = coords_cols[r];
-		int a = data[r];
-		fprintf(stderr, "[%s:%s:%d] Cell (%d, %d) has data %d\n", __FILE__, __func__, __LINE__, i, j, a);
+		// Submit the query
+		if (TILEDB_OK != tiledb_query_submit(ctx, query))
+			PRINT_ERROR(ctx)
+		// Finalize and close
+		tiledb_query_finalize(ctx, query);
+		tiledb_query_free(&query);
 	}
-
-	// Clean up
-	free((void *)coords_rows);
-	free((void *)coords_cols);
-	free((void *)data);
-	tiledb_subarray_free(&subarray);
-	tiledb_array_free(&array);
-	tiledb_query_free(&query);
-	tiledb_ctx_free(&ctx);
+	tiledb_array_close(ctx, array);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+	char *operation = NULL;
+
+	// Parse command-line arguments
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-w") == 0 && i + 1 < argc) {
+			operation = argv[i + 1];
+			i++; // skip the next argument since we've just processed it
+		}
+	}
+
+	if (!operation) {
+		log_fatal("Missing mandatory -w parameter");
+		_exit(EXIT_FAILURE);
+	}
+
+	if (strcmp(operation, "write") != 0 && strcmp(operation, "update") != 0) {
+		log_fatal("Invalid value for -w. Expected 'write' or 'update'.");
+		_exit(EXIT_FAILURE);
+	}
+
 	// Get object type
 	tiledb_ctx_t *ctx;
 	tiledb_ctx_alloc(NULL, &ctx);
@@ -253,12 +296,15 @@ int main(void)
 	tiledb_object_type(ctx, array_name, &type);
 	tiledb_ctx_free(&ctx);
 
-	// if (type != TILEDB_ARRAY) {
-	create_array();
-	tiledb_write_array();
-	// }
+	// Now, based on the value of operation, perform your tasks
+	if (strcmp(operation, "write") == 0) {
+		log_info("Executing write workload");
+		create_array();
+		tiledb_write_array();
+		return 1;
+	}
+	log_info("Executing update workload");
+	tiledb_random_update();
 
-	// read_array();
-
-	return 0;
+	return 1;
 }
